@@ -14,6 +14,9 @@ from tlf_shell_builder import render_shell_tlf_tab
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
+# FORENSIC STARTUP MARKER
+st.warning("🚀 RUNNING_CLEANED_REPOSITORY_MARKER — Path: /Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned/app.py")
+
 for key, default in {
     "sas_input": "",
     "upload_key": 0,
