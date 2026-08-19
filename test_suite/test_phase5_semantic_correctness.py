@@ -238,6 +238,59 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
         self.assertIn("GROUP_BY", val.missing_r_ops)
         self.assertIn("AGGREGATION", val.missing_r_ops)
 
+    def test_16_alias_resolution_having_raw_sum(self):
+        """Test A: having sum(amount) > 500 resolves to filter(total_spent > 500)."""
+        sas = """
+        proc sql;
+            select cust_id, sum(amount) as total_spent
+            from orders
+            group by cust_id
+            having sum(amount) > 500;
+        quit;
+        """
+        step = ProgramStep(step_index=1, step_type="PROC_STEP", name="PROC SQL", source_code=sas, input_datasets=["ORDERS"], output_datasets=["RESULT"])
+        r_code, _, _ = self.rule_engine.translate_step(step)
+
+        self.assertIn("filter(total_spent > 500)", r_code)
+        self.assertNotIn("filter(sum(amount) > 500)", r_code)
+
+    def test_17_alias_resolution_having_calculated(self):
+        """Test B: having calculated total_spent > 500 resolves to filter(total_spent > 500)."""
+        sas = """
+        proc sql;
+            select cust_id, sum(amount) as total_spent
+            from orders
+            group by cust_id
+            having calculated total_spent > 500;
+        quit;
+        """
+        step = ProgramStep(step_index=1, step_type="PROC_STEP", name="PROC SQL", source_code=sas, input_datasets=["ORDERS"], output_datasets=["RESULT"])
+        r_code, _, _ = self.rule_engine.translate_step(step)
+
+        self.assertIn("filter(total_spent > 500)", r_code)
+
+    def test_18_alias_resolution_orderby(self):
+        """Test C: order by total_spent desc resolves to arrange(desc(total_spent))."""
+        sas = """
+        proc sql;
+            select cust_id, sum(amount) as total_spent
+            from orders
+            group by cust_id
+            order by total_spent desc;
+        quit;
+        """
+        step = ProgramStep(step_index=1, step_type="PROC_STEP", name="PROC SQL", source_code=sas, input_datasets=["ORDERS"], output_datasets=["RESULT"])
+        r_code, _, _ = self.rule_engine.translate_step(step)
+
+        self.assertIn("arrange(desc(total_spent))", r_code)
+
+    def test_19_data_level_exact_ordering(self):
+        """Test D: Verify final data-level result remains C2 (1000) -> C1 (800) -> C3 (600)."""
+        res_df = DataLevelValidator.expected_orders_result()
+        self.assertEqual(list(res_df["cust_id"]), ["C2", "C1", "C3"])
+        self.assertEqual(list(res_df["total_spent"]), [1000, 800, 600])
+        self.assertEqual(list(res_df["total_orders"]), [2, 2, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

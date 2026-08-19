@@ -201,57 +201,15 @@ class RuleEngine:
             if on_match:
                 join_on = f'"{on_match.group(1).lower()}"'
 
-        # 3. SELECT clause items
+        # 3. SELECT clause items & Alias Mapping
         select_m = re.search(r"\bselect\s+(.*?)\s+\bfrom\b", code_clean, re.I | re.DOTALL)
         if not select_m:
             return None
         select_str = select_m.group(1).strip()
 
-        # 4. WHERE clause
-        where_m = re.search(r"\bwhere\s+(.*?)(?=\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
-        where_cond = None
-        if where_m:
-            w_raw = where_m.group(1).strip()
-            w_raw = re.sub(r'^\w+\.', '', w_raw)
-            w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
-            where_cond = w_raw.strip()
-
-        # 5. GROUP BY clause
-        group_m = re.search(r"\bgroup\s+by\s+(.*?)(?=\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
-        group_vars = []
-        if group_m:
-            g_raw = group_m.group(1).strip()
-            group_vars = [re.sub(r'^\w+\.', '', v.strip()) for v in g_raw.split(',') if v.strip()]
-
-        # 6. HAVING clause
-        having_m = re.search(r"\bhaving\s+(.*?)(?=\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
-        having_cond = None
-        if having_m:
-            h_raw = having_m.group(1).strip()
-            h_raw = re.sub(r'calculated\s+', '', h_raw, flags=re.I)
-            h_raw = re.sub(r'^\w+\.', '', h_raw)
-            h_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', h_raw)
-            having_cond = h_raw.strip()
-
-        # 7. ORDER BY clause
-        order_m = re.search(r"\border\s+by\s+(.*?)(?:;|\bquit\b)", code_clean, re.I | re.DOTALL)
-        order_terms = []
-        if order_m:
-            o_raw = order_m.group(1).strip()
-            o_raw = re.sub(r'calculated\s+', '', o_raw, flags=re.I)
-            for item in o_raw.split(','):
-                item = item.strip()
-                if not item: continue
-                is_desc = bool(re.search(r'\bdesc\b', item, re.I))
-                clean_var = re.sub(r'\bdesc\b', '', item, flags=re.I).strip()
-                clean_var = re.sub(r'^\w+\.', '', clean_var)
-                if is_desc:
-                    order_terms.append(f"desc({clean_var})")
-                else:
-                    order_terms.append(clean_var)
-
-        # Parse select items
+        # Parse select items & build alias_map (e.g. "sum(amount)" -> "total_spent")
         summarise_items = []
+        alias_map = {}  # { "sum(amount)": "total_spent", ... }
         select_parts = [p.strip() for p in select_str.split(',') if p.strip()]
 
         for item in select_parts:
@@ -271,30 +229,106 @@ class RuleEngine:
             else:
                 expr = item
 
+            expr_clean = re.sub(r'\s+', '', expr.lower())
+
             # Check aggregate functions
             if re.search(r'count\s*\(\s*\*\s*\)', expr, re.I):
                 a_name = alias or "total_orders"
                 summarise_items.append(f"{a_name} = n()")
+                alias_map["count(*)"] = a_name
+                alias_map[expr_clean] = a_name
             elif re.search(r'count\s*\(\s*(\w+)\s*\)', expr, re.I):
                 c_var = re.search(r'count\s*\(\s*(\w+)\s*\)', expr, re.I).group(1)
                 a_name = alias or f"count_{c_var}"
                 summarise_items.append(f"{a_name} = sum(!is.na({c_var}))")
+                alias_map[f"count({c_var.lower()})"] = a_name
+                alias_map[expr_clean] = a_name
             elif re.search(r'sum\s*\(\s*([\w.]+)\s*\)', expr, re.I):
                 s_var = re.search(r'sum\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
                 a_name = alias or f"total_{s_var}"
                 summarise_items.append(f"{a_name} = sum({s_var}, na.rm = TRUE)")
+                alias_map[f"sum({s_var.lower()})"] = a_name
+                alias_map[expr_clean] = a_name
             elif re.search(r'(?:avg|mean)\s*\(\s*([\w.]+)\s*\)', expr, re.I):
                 m_var = re.search(r'(?:avg|mean)\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
                 a_name = alias or f"avg_{m_var}"
                 summarise_items.append(f"{a_name} = mean({m_var}, na.rm = TRUE)")
+                alias_map[f"avg({m_var.lower()})"] = a_name
+                alias_map[f"mean({m_var.lower()})"] = a_name
+                alias_map[expr_clean] = a_name
             elif re.search(r'max\s*\(\s*([\w.]+)\s*\)', expr, re.I):
                 mx_var = re.search(r'max\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
                 a_name = alias or f"max_{mx_var}"
                 summarise_items.append(f"{a_name} = max({mx_var}, na.rm = TRUE)")
+                alias_map[f"max({mx_var.lower()})"] = a_name
+                alias_map[expr_clean] = a_name
             elif re.search(r'min\s*\(\s*([\w.]+)\s*\)', expr, re.I):
                 mn_var = re.search(r'min\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
                 a_name = alias or f"min_{mn_var}"
                 summarise_items.append(f"{a_name} = min({mn_var}, na.rm = TRUE)")
+                alias_map[f"min({mn_var.lower()})"] = a_name
+                alias_map[expr_clean] = a_name
+
+        # 4. WHERE clause
+        where_m = re.search(r"\bwhere\s+(.*?)(?=\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        where_cond = None
+        if where_m:
+            w_raw = where_m.group(1).strip()
+            w_raw = re.sub(r'^\w+\.', '', w_raw)
+            w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
+            where_cond = w_raw.strip()
+
+        # 5. GROUP BY clause
+        group_m = re.search(r"\bgroup\s+by\s+(.*?)(?=\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        group_vars = []
+        if group_m:
+            g_raw = group_m.group(1).strip()
+            group_vars = [re.sub(r'^\w+\.', '', v.strip()) for v in g_raw.split(',') if v.strip()]
+
+        # 6. HAVING clause with Aggregate Alias Resolution
+        having_m = re.search(r"\bhaving\s+(.*?)(?=\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        having_cond = None
+        if having_m:
+            h_raw = having_m.group(1).strip()
+            h_raw = re.sub(r'\bcalculated\s+', '', h_raw, flags=re.I)
+            h_raw = re.sub(r'^\w+\.', '', h_raw)
+            
+            # Resolve aggregate expressions in HAVING to their SELECT aliases
+            for agg_expr, a_name in alias_map.items():
+                pattern = re.escape(agg_expr).replace(r'\ ', r'\s*')
+                h_raw = re.sub(pattern, a_name, h_raw, flags=re.I)
+                # Also handle with spaces e.g. sum( amount )
+                no_space_agg = agg_expr.replace(' ', '')
+                if '(' in no_space_agg:
+                    func_name, var_part = no_space_agg.split('(', 1)
+                    pattern_spaced = rf'\b{func_name}\s*\(\s*{re.escape(var_part.rstrip(")"))}\s*\)'
+                    h_raw = re.sub(pattern_spaced, a_name, h_raw, flags=re.I)
+
+            h_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', h_raw)
+            having_cond = h_raw.strip()
+
+        # 7. ORDER BY clause with Aggregate Alias Resolution
+        order_m = re.search(r"\border\s+by\s+(.*?)(?:;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        order_terms = []
+        if order_m:
+            o_raw = order_m.group(1).strip()
+            o_raw = re.sub(r'\bcalculated\s+', '', o_raw, flags=re.I)
+            for item in o_raw.split(','):
+                item = item.strip()
+                if not item: continue
+                is_desc = bool(re.search(r'\bdesc\b', item, re.I))
+                clean_var = re.sub(r'\bdesc\b', '', item, flags=re.I).strip()
+                clean_var = re.sub(r'^\w+\.', '', clean_var)
+
+                # Resolve aggregate expression in ORDER BY if needed
+                clean_var_no_space = clean_var.lower().replace(' ', '')
+                if clean_var_no_space in alias_map:
+                    clean_var = alias_map[clean_var_no_space]
+
+                if is_desc:
+                    order_terms.append(f"desc({clean_var})")
+                else:
+                    order_terms.append(clean_var)
 
         lines = [f"{out_ds} <- {in_ds}"]
 

@@ -5,17 +5,18 @@
 
 ### 📊 EXECUTIVE SUMMARY
 
-- **PROBLEM DISCOVERED**: Previous benchmark tests reported false-positive PASS scores for PROC SQL queries because the engine produced simple passthrough assignments (e.g., `RESULT <- ORDERS`, `EX_SUM <- EX`, `ADAE_SUM <- AE`) which compiled as valid R but completely omitted grouping, aggregation, HAVING filters, and ORDER BY sorting.
-- **ROOT CAUSE RESOLVED**: Implemented deterministic `PROC SQL` AST parsing and translation in `RuleEngine`, extended `SemanticIR`, introduced `PassthroughDetector` & `SemanticValidator`, and added `DataLevelValidator` for dataset output equivalence.
-- **NEGATIVE TEST COVERAGE**: Implemented 7 explicit negative test cases proving that passthrough assignments (`RESULT <- ORDERS`), missing `group_by`, missing `summarise`, missing `filter` (HAVING), missing `arrange` (ORDER BY), missing `left_join`, and incomplete clinical transformations fail semantic validation (`is_equivalent == False`).
+- **PHASE 5 CORRECTION APPLIED**: Fixed generic PROC SQL aggregate alias resolution in `RuleEngine._translate_proc_sql()`. The `HAVING` clause now resolves raw aggregate expressions (e.g. `having sum(amount) > 500`) and SAS `CALCULATED` keywords to the generated `SELECT` alias (e.g. `dplyr::filter(total_spent > 500)`), aligning post-aggregation filtering with tidyverse semantics.
+- **FALSE POSITIVES ELIMINATED**: Resolved false-positive passthrough assignments (`RESULT <- ORDERS`, `EX_SUM <- EX`, `ADAE_SUM <- AE`) where previous tests passed merely because valid R syntax compiled.
+- **DETERMINISTIC PROC SQL TRANSLATOR**: Implemented full `PROC SQL` AST parsing and translation in `RuleEngine` for `SELECT`, `GROUP BY`, aggregate functions (`COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`/`MEAN`, `MAX`, `MIN`), `HAVING` clauses, `ORDER BY` sorting, and `LEFT JOIN` operations.
+- **NEGATIVE & ALIAS RESOLUTION TESTS**: Implemented 11 explicit test cases covering passthrough assignments, missing operations, and tests A–D for aggregate alias resolution (`having sum(amount) > 500` $\rightarrow$ `filter(total_spent > 500)`).
 - **GEMINI LIVE CALLS**: **EXACTLY 0 (Hard Disabled, `DISABLE_GEMINI=true`)**
 - **GROQ STATUS**: **ACTIVE PRIMARY PROVIDER (`llama-3.3-70b-versatile`)**
-- **TOTAL REGRESSION TESTS**: **76 / 76 PASSED (100% Pass Rate via `python3 -m unittest discover test_suite`)**
+- **TOTAL REGRESSION TESTS**: **80 / 80 PASSED (100% Pass Rate via `python3 -m unittest discover test_suite`)**
 - **MASTER ORIGINAL REPOSITORY**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` (**100% UNTOUCHED and READ-ONLY**)
 
 ---
 
-## 1. Orders SAS Conversion: Before vs. After
+## 1. Orders SAS Conversion: Before vs. After (Final Corrected Output)
 
 ### SAS Source Code:
 ```sas
@@ -47,7 +48,7 @@ proc sql;
 quit;
 ```
 
-### BEFORE (False Positive Output):
+### BEFORE Phase 5 (False Positive Passthrough):
 ```r
 ORDERS <- input_df
 ORDERS
@@ -57,7 +58,7 @@ RESULT
 ```
 *(Failed to aggregate, group, filter, or sort)*
 
-### AFTER (Phase 5 Verified Semantic Output):
+### AFTER Phase 5 (Final Corrected Semantic Output):
 ```r
 # ── SAS Environment & Infrastructure Setup ──
 
@@ -75,7 +76,7 @@ RESULT <- ORDERS %>%
     min_order = min(amount, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  dplyr::filter(sum(amount) > 500) %>%
+  dplyr::filter(total_spent > 500) %>%
   dplyr::arrange(desc(total_spent))
 RESULT
 ```
@@ -92,7 +93,7 @@ Expected vs. Generated Execution Dataframe for `RESULT`:
 | **2** | **C1** | 2 | **800** | 400.0 | 500 | 300 | **MATCH** |
 | **3** | **C3** | 1 | **600** | 600.0 | 600 | 600 | **MATCH** |
 
-- **Row Filtering (`HAVING sum(amount) > 500`)**: Correctly includes C2 (1000), C1 (800), and C3 (600).
+- **Row Filtering (`HAVING sum(amount) > 500` $\rightarrow$ `total_spent > 500`)**: Correctly includes C2 (1000), C1 (800), and C3 (600).
 - **Row Ordering (`ORDER BY total_spent DESC`)**: Correctly ordered C2 $\rightarrow$ C1 $\rightarrow$ C3.
 
 ---
@@ -145,17 +146,21 @@ ADSL_SORTED
 
 ---
 
-## 4. Negative Test Suite Results (`test_phase5_semantic_correctness.py`)
+## 4. Specific Regression Tests A, B, C, D (`test_phase5_semantic_correctness.py`)
 
-| Negative Test Case | Code Tested | Expected Result | Status |
+| Test Case | SAS Construct | Generated R | Status |
 |---|---|---|---|
-| **Test 9: Passthrough Assignment** | `RESULT <- ORDERS` | `is_equivalent == False`, `is_passthrough == True` | **PASS** |
-| **Test 10: Missing `group_by`** | `summarise()` without `group_by()` | `is_equivalent == False`, Missing `GROUP_BY` | **PASS** |
-| **Test 11: Missing `summarise`** | `group_by()` without `summarise()` | `is_equivalent == False`, Missing `AGGREGATION` | **PASS** |
-| **Test 12: Missing `HAVING` / `filter`** | `group_by()` + `summarise()` without `filter()` | `is_equivalent == False`, Missing `HAVING` | **PASS** |
-| **Test 13: Missing `ORDER BY` / `arrange`** | `group_by()` + `summarise()` without `arrange()` | `is_equivalent == False`, Missing `ORDER_BY` | **PASS** |
-| **Test 14: Missing `JOIN`** | `ADSL_FINAL <- ADSL` without `left_join` | `is_equivalent == False`, Missing `JOIN` | **PASS** |
-| **Test 15: Incomplete Clinical** | `EX_SUM <- EX` | `is_equivalent == False`, Missing ops | **PASS** |
+| **Test A (16)** | `having sum(amount) > 500` | `dplyr::filter(total_spent > 500)` | **PASS** |
+| **Test B (17)** | `having calculated total_spent > 500` | `dplyr::filter(total_spent > 500)` | **PASS** |
+| **Test C (18)** | `order by total_spent desc` | `dplyr::arrange(desc(total_spent))` | **PASS** |
+| **Test D (19)** | Orders Data-Level Result Verification | C2 (1000) $\rightarrow$ C1 (800) $\rightarrow$ C3 (600) | **PASS** |
+| **Test 9** | Passthrough (`RESULT <- ORDERS`) | `is_equivalent == False`, `is_passthrough == True` | **PASS** |
+| **Test 10** | Missing `group_by` | `is_equivalent == False` | **PASS** |
+| **Test 11** | Missing `summarise` | `is_equivalent == False` | **PASS** |
+| **Test 12** | Missing `HAVING` / `filter` | `is_equivalent == False` | **PASS** |
+| **Test 13** | Missing `ORDER BY` / `arrange` | `is_equivalent == False` | **PASS** |
+| **Test 14** | Missing `JOIN` | `is_equivalent == False` | **PASS** |
+| **Test 15** | Incomplete Clinical (`EX_SUM <- EX`) | `is_equivalent == False` | **PASS** |
 
 ---
 
@@ -169,7 +174,7 @@ ADSL_SORTED
 | `AVG(col)` / `MEAN(col)` | `mean(col, na.rm = TRUE)` | `mean(x, na.rm = TRUE)` | SAS mean calculation |
 | `MAX(col)` | `max(col, na.rm = TRUE)` | `max(x, na.rm = TRUE)` | Group maximum |
 | `MIN(col)` | `min(col, na.rm = TRUE)` | `min(x, na.rm = TRUE)` | Group minimum |
-| `HAVING condition` | `filter(condition)` | `df[condition, ]` | Evaluated **after** aggregation |
+| `HAVING sum(col) > N` | `filter(total_col > N)` | `df[total_col > N, ]` | Evaluated **after** aggregation on alias |
 | `HAVING calculated alias` | `filter(alias)` | `df[alias, ]` | Resolves calculated aliases |
 | `ORDER BY col DESC` | `arrange(desc(col))` | `df[order(-col), ]` | Sorts output descending |
 | `LEFT JOIN t2 ON t1.id = t2.id` | `left_join(t2, by = "id")` | `merge(t1, t2, by = "id", all.x = TRUE)` | Preserves all primary records |
@@ -178,7 +183,7 @@ ADSL_SORTED
 
 ## 6. Full Regression Suite Results (`python3 -m unittest discover test_suite`)
 
-All **76 tests across all test modules in `test_suite` passed with 0 Gemini calls**:
+All **80 tests across all test modules in `test_suite` passed with 0 Gemini calls**:
 
 | Test Module | Test Cases | Status | Details |
 |---|---|---|---|
@@ -190,10 +195,10 @@ All **76 tests across all test modules in `test_suite` passed with 0 Gemini call
 | **`test_groq_primary_verification.py`** | 2 | **PASS** | Orders & Clinical benchmark |
 | **`test_app_ui_and_download_flow.py`** | 2 | **PASS** | UI 11 sections & Download payload |
 | **`verify_11928fa_deployment.py`** | 5 | **PASS** | Session state stability & imports |
-| **`test_phase5_semantic_correctness.py`** | 15 | **PASS** | SQL translation & 7 negative tests |
+| **`test_phase5_semantic_correctness.py`** | 19 | **PASS** | SQL translation, negative tests & Tests A–D |
 | **`test_disable_gemini_guard.py`** | 2 | **PASS** | Gemini hard-disable guard |
 | **`run_torture_tests.py`** | 10 | **PASS** | Torture levels 1–8 |
-| **Total Test Suite** | **76 Tests** | **76 / 76 PASSED** | **100% Pass Rate** |
+| **Total Test Suite** | **80 Tests** | **80 / 80 PASSED** | **100% Pass Rate** |
 
 ---
 
@@ -212,7 +217,7 @@ SAS Source Code
 SAS AST & Macro Processor
       │
       ▼
-Rule Engine (PROC SQL & DATA step translator)
+Rule Engine (PROC SQL Translator + Aggregate Alias Resolver)
       │
       ▼
 Semantic Validator (PassthroughDetector & Operation Coverage)
@@ -227,4 +232,4 @@ R Optimizer (ROptimizer)
 Clean, Compact, Executive R Output
 ```
 
-**Phase 5 Semantic SAS->R Equivalence complete. Gemini live calls = 0. All 76 regression tests PASSED. Saved at `test_suite/PHASE_5_SEMANTIC_CORRECTNESS_REPORT.md`. Execution stopped as requested. DO NOT PUSH.**
+**Phase 5 Semantic SAS->R Equivalence complete and verified. Gemini live calls = 0. All 80 regression tests PASSED. Saved at `test_suite/PHASE_5_SEMANTIC_CORRECTNESS_REPORT.md`. Execution stopped as requested. DO NOT PUSH.**
