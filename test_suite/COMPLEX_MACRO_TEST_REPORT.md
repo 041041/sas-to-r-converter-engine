@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-19 22:24:10
+**Test Timestamp**: 2026-08-19 22:46:54
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -209,7 +209,7 @@ Automated modernization analysis for 'Level 3_Nested_Macros'. The program contai
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 3_Nested_Macros`
 - **Input Datasets**: `None`
-- **Output Datasets**: `_SORTED, _CLEAN`
+- **Output Datasets**: `_CLEAN, _SORTED`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -508,7 +508,7 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 7_Complex_Clinical_Macro`
 - **Input Datasets**: `DM`
-- **Output Datasets**: `AE_JOINED, ADAE, ADSL_POP`
+- **Output Datasets**: `ADAE, AE_JOINED, ADSL_POP`
 - **Libraries / Data Sources**:
   - `SDTM` $\rightarrow$ `lib_sdtm`
   - `ADAM` $\rightarrow$ `lib_adam`
@@ -595,8 +595,8 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 8_Extreme_Macro`
-- **Input Datasets**: `, AE_CLEAN, DM_CLEAN`
-- **Output Datasets**: `EXTREME_SUMMARY, _PROC, _CLEAN`
+- **Input Datasets**: `, DM_CLEAN, AE_CLEAN`
+- **Output Datasets**: `_PROC, _CLEAN, EXTREME_SUMMARY`
 - **Libraries / Data Sources**:
   - `RAW` $\rightarrow$ `lib_raw`
   - `ADAM` $\rightarrow$ `lib_adam`

@@ -44,6 +44,16 @@ class TestDisableGeminiGuard(unittest.TestCase):
             mock_gemini_client.models.generate_content.assert_not_called()
             mock_groq_client.chat.completions.create.assert_called_once()
 
+    def test_direct_gemini_provider_raises_disabled_error(self):
+        """Verifies GeminiProvider.generate() raises GeminiDisabledError directly."""
+        mock_client = MagicMock()
+        p = GeminiProvider(api_key="mock-key", client=mock_client)
+        from llm_provider import GeminiDisabledError
+        with patch.dict(os.environ, {"DISABLE_GEMINI": "true"}):
+            with self.assertRaises(GeminiDisabledError):
+                p.generate("Test prompt")
+            mock_client.models.generate_content.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

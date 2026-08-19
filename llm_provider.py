@@ -40,6 +40,8 @@ class GeminiDisabledForDevelopment(RuntimeError):
     """Exception raised when Gemini API calls are explicitly disabled for development."""
     pass
 
+GeminiDisabledError = GeminiDisabledForDevelopment
+
 
 class GeminiProvider(BaseLLMProvider):
     """Primary LLM Provider wrapping Google Gemini API."""
@@ -57,6 +59,10 @@ class GeminiProvider(BaseLLMProvider):
         ]
 
     def _get_client(self) -> Any:
+        if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes"):
+            return None
+        if os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
+            return None
         if self.client:
             return self.client
         if not self.api_key:
@@ -70,13 +76,15 @@ class GeminiProvider(BaseLLMProvider):
             return None
 
     def is_available(self) -> bool:
-        if os.environ.get("DISABLE_GEMINI", "").lower() in ("true", "1", "yes"):
+        if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes"):
+            return False
+        if os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
             return False
         return bool(self._get_client() or self.api_key)
 
     def generate(self, prompt: str) -> tuple[str, str]:
-        if os.environ.get("DISABLE_GEMINI", "").lower() in ("true", "1", "yes"):
-            raise GeminiDisabledForDevelopment("Gemini API calls disabled via DISABLE_GEMINI environment variable.")
+        if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes") or os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
+            raise GeminiDisabledError("Gemini API calls hard disabled in development mode.")
 
         client = self._get_client()
         if not client:

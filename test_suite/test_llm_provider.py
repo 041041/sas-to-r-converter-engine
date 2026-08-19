@@ -19,6 +19,9 @@ from llm_router import LLMRouter
 class TestLLMProviderAndRouter(unittest.TestCase):
 
     def setUp(self):
+        import os
+        os.environ["DISABLE_GEMINI"] = "false"
+        os.environ["LLM_PRIMARY_PROVIDER"] = "gemini"
         self.mock_gemini_client = MagicMock()
         self.mock_groq_client = MagicMock()
 

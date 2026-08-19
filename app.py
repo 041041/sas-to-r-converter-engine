@@ -195,14 +195,17 @@ def is_valid_r_code(text: str) -> bool:
     if not text or not text.strip():
         return False
 
-    lowered = text.lower()
-    # Reject obvious SAS statements & conversational review headers
-    sas_indicators = ["data ", "set ", "proc ", "run;", "quit;", "datalines;", "cards;", "then ", "else if "]
-    prose_indicators = ["here is a", "code review", "sas script", "corrected sas", "macro reference", "explanations:"]
+    # Filter out comment lines when checking indicators
+    code_lines = [l.strip().lower() for l in text.split("\n") if l.strip() and not l.strip().startswith('#')]
+    code_text = "\n".join(code_lines)
 
-    if any(ind in lowered for ind in sas_indicators):
+    # Reject obvious SAS statement keywords in code lines
+    sas_indicators = ["data ", "set ", "proc ", "run;", "quit;", "datalines;", "cards;", "then ", "else if "]
+    prose_indicators = ["here is a", "code review", "corrected sas", "macro reference", "explanations:"]
+
+    if any(ind in code_text for ind in sas_indicators):
         return False
-    if any(ind in lowered for ind in prose_indicators):
+    if any(ind in code_text for ind in prose_indicators):
         return False
 
     # Must contain at least one valid R assignment or operation indicator
