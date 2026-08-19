@@ -128,15 +128,24 @@ class GroqProvider(BaseLLMProvider):
     def _fetch_api_key(self) -> Optional[str]:
         if self.api_key:
             return self.api_key
+        # Priority 1: Streamlit Cloud Secrets
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                if "GROQ_API_KEY" in st.secrets and st.secrets["GROQ_API_KEY"]:
+                    return str(st.secrets["GROQ_API_KEY"]).strip()
+                # Also check nested secrets if configured as [groq] api_key
+                if "groq" in st.secrets and isinstance(st.secrets["groq"], dict) and "api_key" in st.secrets["groq"]:
+                    return str(st.secrets["groq"]["api_key"]).strip()
+        except Exception:
+            pass
+
+        # Priority 2: Environment variable
         key = os.environ.get("GROQ_API_KEY")
         if key and key.strip():
             return key.strip()
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets and st.secrets["GROQ_API_KEY"]:
-                return str(st.secrets["GROQ_API_KEY"]).strip()
-        except Exception:
-            pass
+
+        # Priority 3: Local file .streamlit/secrets.toml
         try:
             toml_path = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
             if os.path.exists(toml_path):
