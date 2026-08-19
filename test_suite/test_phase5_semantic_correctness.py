@@ -180,6 +180,64 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
         self.assertIn("max_age = max(age, na.rm = TRUE)", r_code)
         self.assertIn("min_age = min(age, na.rm = TRUE)", r_code)
 
+    def test_09_negative_passthrough_fails_validation(self):
+        """Negative Test 9: RESULT <- ORDERS fails semantic validation."""
+        sas = "proc sql; select cust_id, sum(amount) from orders group by cust_id; quit;"
+        bad_r = "RESULT <- ORDERS"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertTrue(val.is_passthrough_false_positive)
+
+    def test_10_negative_missing_groupby_fails_validation(self):
+        """Negative Test 10: Missing group_by fails semantic validation."""
+        sas = "proc sql; select cust_id, sum(amount) from orders group by cust_id; quit;"
+        bad_r = "RESULT <- ORDERS %>% summarise(total = sum(amount))"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertIn("GROUP_BY", val.missing_r_ops)
+
+    def test_11_negative_missing_aggregation_fails_validation(self):
+        """Negative Test 11: Missing aggregation fails semantic validation."""
+        sas = "proc sql; select cust_id, sum(amount) from orders group by cust_id; quit;"
+        bad_r = "RESULT <- ORDERS %>% group_by(cust_id)"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertIn("AGGREGATION", val.missing_r_ops)
+
+    def test_12_negative_missing_having_fails_validation(self):
+        """Negative Test 12: Missing HAVING/filter fails semantic validation."""
+        sas = "proc sql; select cust_id, sum(amount) from orders group by cust_id having sum(amount) > 500; quit;"
+        bad_r = "RESULT <- ORDERS %>% group_by(cust_id) %>% summarise(total = sum(amount))"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertIn("HAVING", val.missing_r_ops)
+
+    def test_13_negative_missing_orderby_fails_validation(self):
+        """Negative Test 13: Missing ORDER BY/arrange fails semantic validation."""
+        sas = "proc sql; select cust_id, sum(amount) from orders group by cust_id order by total desc; quit;"
+        bad_r = "RESULT <- ORDERS %>% group_by(cust_id) %>% summarise(total = sum(amount))"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertIn("ORDER_BY", val.missing_r_ops)
+
+    def test_14_negative_missing_join_fails_validation(self):
+        """Negative Test 14: Missing JOIN fails semantic validation."""
+        sas = "proc sql; select a.*, b.ae_count from adsl a left join adae_sum b on a.usubjid = b.usubjid; quit;"
+        bad_r = "ADSL_FINAL <- ADSL"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertIn("JOIN", val.missing_r_ops)
+
+    def test_15_negative_incomplete_clinical_fails_validation(self):
+        """Negative Test 15: Incomplete clinical transformation EX_SUM <- EX fails semantic validation."""
+        sas = "proc sql; select usubjid, count(*) as exposure_records, sum(dose) as total_dose from ex group by usubjid; quit;"
+        bad_r = "EX_SUM <- EX"
+        val = self.validator.validate(sas, bad_r)
+        self.assertFalse(val.is_equivalent)
+        self.assertTrue(val.is_passthrough_false_positive)
+        self.assertIn("GROUP_BY", val.missing_r_ops)
+        self.assertIn("AGGREGATION", val.missing_r_ops)
+
 
 if __name__ == "__main__":
     unittest.main()
