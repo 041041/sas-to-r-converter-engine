@@ -49,11 +49,23 @@ class LLMRouter:
                     fallback_occurred=False
                 )
             except Exception as e:
+                from llm_provider import GeminiDisabledForDevelopment
                 err_msg = str(e)
                 err_lower = err_msg.lower()
 
+                if isinstance(e, GeminiDisabledForDevelopment) or "disabled_gemini" in err_lower:
+                    logger.info("[LLM] Gemini: DISABLED_FOR_DEVELOPMENT")
+                    logger.info("[LLM] Gemini retry: SKIPPED")
+                    logger.info("[LLM] Fallback: Groq")
+                    self.circuit_open_gemini = True
+                    return self._call_groq_fallback(
+                        prompt,
+                        warning="Gemini disabled for development — switched to Groq.",
+                        error_type="DISABLED_FOR_DEVELOPMENT"
+                    )
+
                 # 1. Check for 429 RESOURCE_EXHAUSTED / Quota Limit
-                if any(k in err_lower for k in ["429", "resource_exhausted", "quota", "rate_limit"]):
+                elif any(k in err_lower for k in ["429", "resource_exhausted", "quota", "rate_limit"]):
                     logger.warning("[LLM] Gemini: 429 RESOURCE_EXHAUSTED")
                     logger.warning("[LLM] Gemini retry: SKIPPED")
                     logger.warning("[LLM] Fallback: Groq")
@@ -100,7 +112,7 @@ class LLMRouter:
         # Gemini unavailable
         logger.info("[LLM] Gemini provider unavailable -> routing to Groq")
         logger.info("[LLM] Fallback: Groq")
-        return self._call_groq_fallback(prompt, warning="Gemini uninitialized — switched to Groq.")
+        return self._call_groq_fallback(prompt, warning="Gemini disabled/unavailable — switched to Groq.")
 
     def _call_groq_fallback(self, prompt: str, warning: str, error_type: Optional[str] = None) -> LLMResponse:
         if self.groq.is_available():

@@ -36,6 +36,11 @@ class BaseLLMProvider:
         raise NotImplementedError
 
 
+class GeminiDisabledForDevelopment(RuntimeError):
+    """Exception raised when Gemini API calls are explicitly disabled for development."""
+    pass
+
+
 class GeminiProvider(BaseLLMProvider):
     """Primary LLM Provider wrapping Google Gemini API."""
     name: str = "Gemini"
@@ -65,9 +70,14 @@ class GeminiProvider(BaseLLMProvider):
             return None
 
     def is_available(self) -> bool:
+        if os.environ.get("DISABLE_GEMINI", "").lower() in ("true", "1", "yes"):
+            return False
         return bool(self._get_client() or self.api_key)
 
     def generate(self, prompt: str) -> tuple[str, str]:
+        if os.environ.get("DISABLE_GEMINI", "").lower() in ("true", "1", "yes"):
+            raise GeminiDisabledForDevelopment("Gemini API calls disabled via DISABLE_GEMINI environment variable.")
+
         client = self._get_client()
         if not client:
             raise RuntimeError("Gemini API key missing or client uninitialized.")
