@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-19 23:05:31
+**Test Timestamp**: 2026-08-19 23:15:44
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -15,8 +15,8 @@ Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of
 | **Level 3**: Nested Macros | `43.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **62.5%** |
 | **Level 4**: Dynamic Macro References | `48.0/100` | PASS | PASS | PASS | PARTIAL | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **30.0%** |
 | **Level 5**: Macro Functions | `20.0/100` | PASS | PASS | PASS | PARTIAL | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **30.0%** |
-| **Level 6**: Infrastructure + Macros | `48.0/100` | PASS | PASS | PASS | PARTIAL | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **30.0%** |
-| **Level 7**: Complex Clinical Macro | `54.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **61.2%** |
+| **Level 6**: Infrastructure + Macros | `48.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **95.0%** |
+| **Level 7**: Complex Clinical Macro | `54.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **77.5%** |
 | **Level 8**: Extreme Macro | `96.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **51.7%** |
 
 
@@ -424,7 +424,7 @@ Automated modernization analysis for 'Level 5_Macro_Functions'. The program cont
 # 🚀 SAS Modernization Report: Level 6_Infrastructure_+_Macros
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The program contains 1 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 30.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The program contains 1 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 95.0% with a 0.0% reduction in R code line count.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 6_Infrastructure_+_Macros`
@@ -439,7 +439,7 @@ Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The prog
 ## 3. SAS Logic Analysis
 | Step # | Name | Type | Method | Confidence |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | `PROC SQL` | `PROC_STEP` | `ManualReviewRequired` | 30% |
+| 1 | `PROC SQL` | `PROC_STEP` | `Rule_ProcSQL` | 95% |
 
 
 ## 4. Macro Analysis
@@ -453,12 +453,12 @@ Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The prog
 ## 5. SAS → R Construct Mapping
 | SAS Construct | Target R Equivalent | Confidence | Translation Method |
 | :--- | :--- | :--- | :--- |
-| `PROC SQL` | `# TODO: Manual review required for step: PROC SQL...` | **Low** | `ManualReviewRequired` |
+| `PROC SQL` | `ADSL <- DM %>%   dplyr::filter(saffl == "Y") ADSL...` | **High** | `Rule_ProcSQL` |
 
 
 ## 6. R Code Optimization Metrics
-- **Original R Lines**: `10`
-- **Optimized R Lines**: `10`
+- **Original R Lines**: `12`
+- **Optimized R Lines**: `12`
 - **Line Reduction**: **`0.0%`**
 - **Redundant Intermediate Datasets Removed**: `0`
 - **Duplicate Imports Removed**: `0`
@@ -479,7 +479,9 @@ file_setup <- "/clinical/setup.sas"
 options(stringsAsFactors = FALSE, check.names = FALSE)
 # %INCLUDE: source("setup")
 
-# TODO: Manual review required for step: PROC SQL
+ADSL <- DM %>%
+  dplyr::filter(saffl == "Y")
+ADSL
 ```
 
 ## 8. Validation Results
@@ -489,12 +491,11 @@ options(stringsAsFactors = FALSE, check.names = FALSE)
 ## 9. Manual Review Items
 - ⚠️ Database connection in LIBNAME DB_CONN: odbc dsn=clinical_db user=admin
 - ⚠️ External %INCLUDE directive: setup
-- ⚠️ Unresolved step requires manual translation: PROC SQL
 
 
 ## 10. Conversion Confidence & Rationale
-- **Overall Confidence Score**: **`30.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 3 infrastructure/connection item(s) for manual review.
+- **Overall Confidence Score**: **`95.0%`**
+- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 2 infrastructure/connection item(s) for manual review.
 
 
 --------------------------------------------------------------------------------
@@ -503,7 +504,7 @@ options(stringsAsFactors = FALSE, check.names = FALSE)
 # 🚀 SAS Modernization Report: Level 7_Complex_Clinical_Macro
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The program contains 4 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 61.2% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The program contains 4 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 77.5% with a 0.0% reduction in R code line count.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 7_Complex_Clinical_Macro`
@@ -517,7 +518,7 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 ## 3. SAS Logic Analysis
 | Step # | Name | Type | Method | Confidence |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | `PROC SQL` | `PROC_STEP` | `ManualReviewRequired` | 30% |
+| 1 | `PROC SQL` | `PROC_STEP` | `Rule_ProcSQL` | 95% |
 | 2 | `AE_JOINED` | `DATA_STEP` | `ManualReviewRequired` | 30% |
 | 3 | `PROC SORT` | `PROC_STEP` | `Rule_ProcSort` | 95% |
 | 4 | `PROC FREQ` | `PROC_STEP` | `Rule_ProcFreq` | 90% |
@@ -534,15 +535,15 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 ## 5. SAS → R Construct Mapping
 | SAS Construct | Target R Equivalent | Confidence | Translation Method |
 | :--- | :--- | :--- | :--- |
-| `PROC SQL` | `# TODO: Manual review required for step: PROC SQL...` | **Low** | `ManualReviewRequired` |
+| `PROC SQL` | `ADSL_POP <- DM %>%   dplyr::filter(SAFFL == 'Y') ADSL_POP...` | **High** | `Rule_ProcSQL` |
 | `AE_JOINED` | `# TODO: Manual review required for step: AE_JOINED...` | **Low** | `ManualReviewRequired` |
 | `PROC SORT` | `ADAE <- AE_JOINED %>%   arrange(usubjid, aeseq) ADAE...` | **High** | `Rule_ProcSort` |
 | `PROC FREQ` | `df <- ADAE %>%   count(trt01p, aebodsys) %>%   rename(COUNT = n) df...` | **High** | `Rule_ProcFreq` |
 
 
 ## 6. R Code Optimization Metrics
-- **Original R Lines**: `12`
-- **Optimized R Lines**: `12`
+- **Original R Lines**: `14`
+- **Optimized R Lines**: `14`
 - **Line Reduction**: **`0.0%`**
 - **Redundant Intermediate Datasets Removed**: `0`
 - **Duplicate Imports Removed**: `0`
@@ -557,7 +558,9 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 lib_sdtm <- "/clinical/sdtm"
 lib_adam <- "/clinical/adam"
 
-# TODO: Manual review required for step: PROC SQL
+ADSL_POP <- DM %>%
+  dplyr::filter(SAFFL == 'Y')
+ADSL_POP
 
 # TODO: Manual review required for step: AE_JOINED
 
@@ -576,13 +579,12 @@ df
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-- ⚠️ Unresolved step requires manual translation: PROC SQL
 - ⚠️ Unresolved step requires manual translation: AE_JOINED
 
 
 ## 10. Conversion Confidence & Rationale
-- **Overall Confidence Score**: **`61.2%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 2 infrastructure/connection item(s) for manual review.
+- **Overall Confidence Score**: **`77.5%`**
+- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 1 infrastructure/connection item(s) for manual review.
 
 
 --------------------------------------------------------------------------------
@@ -595,7 +597,7 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 8_Extreme_Macro`
-- **Input Datasets**: `, DM_CLEAN, AE_CLEAN`
+- **Input Datasets**: `DM_CLEAN, , AE_CLEAN`
 - **Output Datasets**: `_CLEAN, EXTREME_SUMMARY, _PROC`
 - **Libraries / Data Sources**:
   - `RAW` $\rightarrow$ `lib_raw`
