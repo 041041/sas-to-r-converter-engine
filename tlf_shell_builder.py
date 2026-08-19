@@ -28,8 +28,17 @@ def _get_secret(key):
     try:    return st.secrets[key]
     except Exception: return os.environ.get(key, "")
 
-_gemini = genai.Client(api_key=_get_secret("GEMINI_API_KEY"))
-_groq   = Groq(api_key=_get_secret("GROQ_API_KEY"))
+_gemini = None
+_g_k = _get_secret("GEMINI_API_KEY")
+if _g_k:
+    try: _gemini = genai.Client(api_key=_g_k)
+    except Exception: _gemini = None
+
+_groq = None
+_gr_k = _get_secret("GROQ_API_KEY")
+if _gr_k:
+    try: _groq = Groq(api_key=_gr_k)
+    except Exception: _groq = None
 
 MAX_RETRIES = 3
 

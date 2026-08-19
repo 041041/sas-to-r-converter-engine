@@ -43,7 +43,7 @@ for key, default in {
 def clear_all():
     st.session_state.sas_input = ""
     st.session_state.uploaded_csvs = {}
-    st.session_state.upload_key = st.session_state.upload_key + 1
+    st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
     st.session_state.pipeline_results = []
     st.session_state.pipeline_run = False
     st.session_state.fix_results = {}
@@ -75,12 +75,19 @@ def get_secret(key):
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GROQ_API_KEY   = get_secret("GROQ_API_KEY")
 
-if not GEMINI_API_KEY or not GROQ_API_KEY:
-    st.error("API keys missing! Please add GEMINI_API_KEY and GROQ_API_KEY to your Streamlit Secrets.")
-    st.stop()
+gemini_client = None
+if GEMINI_API_KEY:
+    try:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception:
+        gemini_client = None
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-groq_client   = Groq(api_key=GROQ_API_KEY)
+groq_client = None
+if GROQ_API_KEY:
+    try:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    except Exception:
+        groq_client = None
 
 # --- SAS TO R FUNCTION MAPPING ---
 SAS_TO_R = {

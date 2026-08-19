@@ -37,8 +37,19 @@ def get_secret(key):
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GROQ_API_KEY   = get_secret("GROQ_API_KEY")
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-groq_client   = Groq(api_key=GROQ_API_KEY)
+gemini_client = None
+if GEMINI_API_KEY:
+    try:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception:
+        gemini_client = None
+
+groq_client = None
+if GROQ_API_KEY:
+    try:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    except Exception:
+        groq_client = None
 
 CHART_TYPES = ["Bar Chart", "Line Chart", "Scatter Plot", "Histogram", "Box Plot", "Pie Chart", "Area Chart", "Heatmap"]
 THEMES = ["minimal", "classic", "dark", "light", "bw", "void"]

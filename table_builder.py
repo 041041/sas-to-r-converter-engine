@@ -20,8 +20,16 @@ def _get_secret(key):
         return os.environ.get(key, "")
 
 def _make_clients():
-    gemini = genai.Client(api_key=_get_secret("GEMINI_API_KEY"))
-    groq   = Groq(api_key=_get_secret("GROQ_API_KEY"))
+    gemini_key = _get_secret("GEMINI_API_KEY")
+    groq_key = _get_secret("GROQ_API_KEY")
+    gemini = None
+    if gemini_key:
+        try: gemini = genai.Client(api_key=gemini_key)
+        except Exception: gemini = None
+    groq = None
+    if groq_key:
+        try: groq = Groq(api_key=groq_key)
+        except Exception: groq = None
     return gemini, groq
 
 # ─────────────────────────────────────────────
