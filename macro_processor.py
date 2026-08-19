@@ -13,6 +13,7 @@ Handles:
   - Multi-file macro library merging
 """
 
+from __future__ import annotations
 import re
 
 

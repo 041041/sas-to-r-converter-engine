@@ -1,4 +1,4 @@
-import os, re, subprocess, tempfile, io, time
+import os, re, subprocess, tempfile, io, time, shutil
 import pandas as pd
 import streamlit as st 
 from google import genai
@@ -662,6 +662,24 @@ with st.sidebar:
         st.divider()
         r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
         st.divider()
+
+        # ── R ENVIRONMENT DIAGNOSTICS ──
+        with st.expander("🔧 R Environment Diagnostics"):
+            rscript_path = shutil.which("Rscript")
+            if rscript_path:
+                st.success(f"✅ Rscript found: `{rscript_path}`")
+                try:
+                    res = subprocess.run([rscript_path, "-e", "cat(R.version.string)"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+                    if res.returncode == 0:
+                        st.info(f"ℹ️ R Version: `{res.stdout.strip()}`")
+                    else:
+                        st.warning(f"⚠️ Rscript execution check failed: {res.stderr.strip()}")
+                except Exception as e:
+                    st.error(f"❌ Error checking R version: {str(e)}")
+            else:
+                st.error("❌ Rscript NOT found in system PATH.")
+                st.caption("Ensure `packages.txt` includes `r-base` when deploying to Streamlit Cloud.")
+        st.divider()
         st.header("📖 How to use")
         st.markdown("""
 **Convert Only:**
@@ -936,8 +954,66 @@ if page == "🔄 SAS Converter":
                 f"{stats['cached']} cached"
             )
 
+        # ── ENTERPRISE SAS MODERNIZATION ENGINE PARSE & ANALYSIS ──
+        import sas_step_converter
+        import doc_generator
+        from doc_renderers import md_renderer
+
+        _modernization_converter = sas_step_converter.SASStepConverter(dialect=r_dialect)
+        _conv_result = _modernization_converter.convert_program(sas_script)
+        _doc_gen = doc_generator.DocumentationGenerator()
+        _mod_doc = _doc_gen.generate_document(_conv_result, program_name="SAS_Program_Modernization")
+        _md_report = md_renderer.render_markdown(_mod_doc)
+
+        with st.expander("🧠 Modernization Engine Analysis & AST", expanded=True):
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Complexity Score", f"{_conv_result.ast.complexity.score:.1f}/100", delta=_conv_result.ast.complexity.risk_level)
+            m2.metric("Overall Confidence", f"{_conv_result.overall_confidence:.1f}%")
+            m3.metric("R Line Reduction", f"{_conv_result.total_optimization_metrics.line_reduction_pct:.1f}%")
+            m4.metric("Macros Detected", len(_conv_result.ast.macros))
+
+            t_ast1, t_ast2, t_ast3, t_ast4 = st.tabs(["📊 Dataset Lineage", "🔧 Infrastructure", "⚡ R Optimizer", "📄 Modernization Document"])
+            with t_ast1:
+                st.markdown("**Dataset Lineage & Pipeline Flow**")
+                lineage_df = [l.to_dict() for l in _conv_result.ast.lineage]
+                if lineage_df:
+                    st.dataframe(lineage_df, use_container_width=True)
+                else:
+                    st.info("No intermediate datasets detected.")
+
+            with t_ast2:
+                st.markdown("**Infrastructure & Setup**")
+                st.code(_conv_result.infra_config.r_config_code or "# No infrastructure directives detected", language="r")
+                if _conv_result.infra_config.manual_review_items:
+                    st.warning("⚠️ **Manual Review Items Flagged**:")
+                    for item in _conv_result.infra_config.manual_review_items:
+                        st.markdown(f"- {item}")
+
+            with t_ast3:
+                st.markdown("**R Code Optimization Breakdown**")
+                opt_m = _conv_result.total_optimization_metrics.to_dict()
+                c_o1, c_o2, c_o3 = st.columns(3)
+                c_o1.metric("Original R Lines", opt_m["original_line_count"])
+                c_o2.metric("Optimized R Lines", opt_m["optimized_line_count"])
+                c_o3.metric("Line Reduction", f"{opt_m['line_reduction_pct']:.1f}%")
+                st.markdown("**Optimization Actions Taken:**")
+                for act in opt_m["actions_taken"]:
+                    st.markdown(f"- ✓ {act}")
+
+            with t_ast4:
+                st.markdown("**Full 10-Section Modernization Report**")
+                st.markdown(_md_report)
+                st.download_button(
+                    "⬇️ Download Modernization Report (.md)",
+                    data=_md_report,
+                    file_name="SAS_Modernization_Report.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                    key="dl_mod_report"
+                )
+
         if mode == "Convert Only":
-          st.subheader("Generated R Code")
+          st.subheader("Generated & Optimized R Code")
           steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
           if not steps: st.error("No valid SAS steps found."); st.stop()
   

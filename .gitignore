@@ -1,12 +1,17 @@
 # Secret keys — never commit these
 .streamlit/secrets.toml
+.env
+.env.*
 
-# Python
+# Python & Caches
 __pycache__/
 *.pyc
 *.pyo
-.env
+.pytest_cache/
+*.log
 
-# OS
+# OS & IDE
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
