@@ -121,25 +121,54 @@ class GroqProvider(BaseLLMProvider):
     name: str = "Groq"
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, client: Optional[Any] = None):
-        self.api_key = api_key or os.environ.get("GROQ_API_KEY")
+        self.api_key = api_key
         self.model = model or os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
         self.client = client
+
+    def _fetch_api_key(self) -> Optional[str]:
+        if self.api_key:
+            return self.api_key
+        key = os.environ.get("GROQ_API_KEY")
+        if key and key.strip():
+            return key.strip()
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets and st.secrets["GROQ_API_KEY"]:
+                return str(st.secrets["GROQ_API_KEY"]).strip()
+        except Exception:
+            pass
+        try:
+            toml_path = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+            if os.path.exists(toml_path):
+                with open(toml_path) as f:
+                    for line in f:
+                        line_s = line.strip()
+                        if line_s.startswith("GROQ_API_KEY"):
+                            parts = line_s.split("=", 1)
+                            if len(parts) == 2:
+                                val = parts[1].strip().strip('"').strip("'")
+                                if val:
+                                    return val
+        except Exception:
+            pass
+        return None
 
     def _get_client(self) -> Any:
         if self.client:
             return self.client
-        if not self.api_key:
+        api_key = self._fetch_api_key()
+        if not api_key:
             return None
         try:
             from groq import Groq
-            self.client = Groq(api_key=self.api_key)
+            self.client = Groq(api_key=api_key)
             return self.client
         except Exception as e:
             logger.warning(f"[LLM] Failed to initialize Groq client: {e}")
             return None
 
     def is_available(self) -> bool:
-        return bool(self._get_client() or self.api_key)
+        return bool(self._get_client() or self._fetch_api_key())
 
     def generate(self, prompt: str) -> tuple[str, str]:
         client = self._get_client()
