@@ -31,6 +31,7 @@ class TestDisableGeminiGuard(unittest.TestCase):
         gemini_p = GeminiProvider(api_key="mock-key", client=mock_gemini_client)
         groq_p = GroqProvider(api_key="mock-key", client=mock_groq_client)
         router = LLMRouter(gemini_provider=gemini_p, groq_provider=groq_p)
+        router.primary_provider = "gemini"
 
         with patch.dict(os.environ, {"DISABLE_GEMINI": "true"}):
             resp = router.generate("TASK: Convert SAS step")

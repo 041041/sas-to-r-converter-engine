@@ -21,24 +21,41 @@ class LLMRouter:
     """
 
     def __init__(self, gemini_provider: Optional[GeminiProvider] = None, groq_provider: Optional[GroqProvider] = None):
+        import os
         self.gemini = gemini_provider or GeminiProvider()
         self.groq = groq_provider or GroqProvider()
         self.circuit_open_gemini: bool = False
+        self.primary_provider: str = os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower()
+        self.gemini_call_count: int = 0
+        self.groq_call_count: int = 0
 
     def generate(self, prompt: str) -> LLMResponse:
         """
-        Executes prompt generation with primary Gemini and automatic fallback to Groq.
+        Executes prompt generation. In Groq-Primary mode, calls Groq directly without initializing Gemini.
         """
+        if self.primary_provider == "groq":
+            logger.info("[LLM Router] Mode: GROQ PRIMARY (Gemini disabled)")
+            self.groq_call_count += 1
+            text, model_used = self.groq.generate(prompt)
+            return LLMResponse(
+                text=text,
+                provider_used="Groq",
+                model_used=model_used,
+                fallback_occurred=False
+            )
+
         # If Gemini circuit is open (previously hit 429), skip Gemini and go straight to Groq
         if self.circuit_open_gemini:
             logger.info("[LLM] Primary: Gemini (Circuit OPEN due to 429)")
             logger.info("[LLM] Gemini retry: SKIPPED")
             logger.info("[LLM] Fallback: Groq")
+            self.groq_call_count += 1
             return self._call_groq_fallback(prompt, warning="Gemini quota reached — switched to Groq.")
 
         # Try Primary Gemini Provider
         if self.gemini.is_available():
             logger.info("[LLM] Primary: Gemini")
+            self.gemini_call_count += 1
             try:
                 text, model_used = self.gemini.generate(prompt)
                 logger.info(f"[LLM] Gemini: SUCCESS (Model: {model_used})")

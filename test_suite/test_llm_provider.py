@@ -26,6 +26,7 @@ class TestLLMProviderAndRouter(unittest.TestCase):
         self.groq_provider = GroqProvider(api_key="mock-groq-key", model="llama-3.3-70b-versatile", client=self.mock_groq_client)
 
         self.router = LLMRouter(gemini_provider=self.gemini_provider, groq_provider=self.groq_provider)
+        self.router.primary_provider = "gemini"
 
     def test_01_gemini_success(self):
         """1. Gemini success: Gemini called 1 time, Groq called 0 times."""

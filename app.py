@@ -190,22 +190,48 @@ def format_elapsed(seconds):
     secs = seconds % 60
     return f"{mins}m {secs:.1f}s"
 
+def is_valid_r_code(text: str) -> bool:
+    """Validates that text represents actual R code, rejecting SAS statements and conversational prose."""
+    if not text or not text.strip():
+        return False
+
+    lowered = text.lower()
+    # Reject obvious SAS statements & conversational review headers
+    sas_indicators = ["data ", "set ", "proc ", "run;", "quit;", "datalines;", "cards;", "then ", "else if "]
+    prose_indicators = ["here is a", "code review", "sas script", "corrected sas", "macro reference", "explanations:"]
+
+    if any(ind in lowered for ind in sas_indicators):
+        return False
+    if any(ind in lowered for ind in prose_indicators):
+        return False
+
+    # Must contain at least one valid R assignment or operation indicator
+    r_indicators = ["<-", "%>%", "df", "filter(", "mutate(", "select(", "arrange(", "group_by(", "summarise(", "summarize(", "head(", "="]
+    return any(ind in text for ind in r_indicators)
+
+
 def clean_r_code(text):
-    """Strips LLM conversational filler, fixes dangling pipes & empty functions, and returns 'df'."""
+    """Strips markdown fences, validates R output contract, and cleans code."""
+    if not text:
+        return "df"
+
+    # Safely strip all markdown code fences regardless of tag
     backticks = "\x60\x60\x60"
     if backticks in text:
-        pattern = backticks + r"(?:r|python|R)?\n(.*?)\n" + backticks
+        pattern = backticks + r"(?:r|python|R|sas|text)?\n?(.*?)\n?" + backticks
         blocks = re.findall(pattern, text, re.DOTALL)
-        if blocks: text = "\n".join(blocks)
+        if blocks:
+            text = "\n".join(blocks)
+        else:
+            text = text.replace(backticks, "")
 
     lines = text.split("\n")
     out = []
-    forbidden = ["explanation:", "sas code:", "run;", "data.frame()", "library("]
+    forbidden = ["explanation:", "sas code:", "run;", "quit;", "data.frame()", "library("]
 
     for line in lines:
         clean_line = line.strip()
         if not clean_line or clean_line.startswith(('#', backticks)): continue
-        if "data.frame(" in clean_line and "c(" in clean_line and "df =" in clean_line.lower(): continue
         if any(x in clean_line.lower() for x in forbidden if x != "data.frame()"): continue
         if "(" in clean_line and "<-" in clean_line:
             clean_line = clean_line.replace("<-", "=")
@@ -327,7 +353,7 @@ from llm_router import get_llm_router
 
 def call_llm_api(prompt, uploaded_csvs, known_tables, r_dialect="Modern R (tidyverse)"):
     """
-    Calls LLMRouter (Gemini primary, Groq fallback) to generate R code.
+    Calls LLMRouter (Groq primary) to generate R code and enforces R output contract validation.
     """
     router = get_llm_router()
     try:
@@ -335,7 +361,10 @@ def call_llm_api(prompt, uploaded_csvs, known_tables, r_dialect="Modern R (tidyv
         if resp.fallback_occurred and resp.warning_msg:
             import streamlit as st
             st.caption(f"⚠️ {resp.warning_msg}")
-        return clean_r_code(resp.text)
+        cleaned = clean_r_code(resp.text)
+        if not is_valid_r_code(cleaned):
+            raise ValueError("LLM response failed R output contract validation (contained SAS syntax or prose commentary).")
+        return cleaned
     except Exception as e:
         raise RuntimeError(f"LLM conversion failed: {e}")
 
