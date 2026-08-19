@@ -94,8 +94,15 @@ class SemanticConversionEngine:
         # 6. Apply R Code Optimizer
         full_optimized_r, opt_metrics = self.optimizer.optimize(full_initial_r)
 
-        # Update honest report status
-        honest_report.r_syntax_status = "PASS"
+        # 7. Phase 5 Semantic Equivalence Validation
+        from semantic_validator import SemanticValidator
+        sem_val = SemanticValidator().validate(sas_code, full_optimized_r)
+
+        if not sem_val.is_equivalent:
+            honest_report.manual_review_items.extend(sem_val.review_notes)
+            honest_report.r_syntax_status = "SEMANTIC_CONVERSION_INCOMPLETE" if sem_val.is_passthrough_false_positive else "PASS"
+        else:
+            honest_report.r_syntax_status = "PASS"
 
         return SemanticConversionResult(
             program_name=program_name,

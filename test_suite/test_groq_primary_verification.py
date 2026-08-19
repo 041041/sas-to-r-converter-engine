@@ -102,6 +102,11 @@ class TestGroqPrimaryVerification(unittest.TestCase):
         self.assertIsNotNone(res)
         self.assertTrue(len(res.optimized_r_code) > 0)
         self.assertTrue(is_valid_r_code(res.optimized_r_code))
+        self.assertIn("group_by", res.optimized_r_code)
+        self.assertIn("summarise", res.optimized_r_code)
+        self.assertIn("filter(", res.optimized_r_code)
+        self.assertIn("arrange(", res.optimized_r_code)
+        self.assertNotIn("RESULT <- ORDERS\nRESULT", res.optimized_r_code)
 
         router = get_llm_router()
         self.assertEqual(router.gemini_call_count, 0)

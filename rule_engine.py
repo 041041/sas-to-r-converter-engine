@@ -47,6 +47,11 @@ class RuleEngine:
         if code.lower().startswith("data"):
             r_code = self._translate_data_step_filter(code)
             if r_code: return r_code, 0.85, "Rule_DataStepFilter"
+
+        # 5. PROC SQL Rule (Aggregations, Group By, Having, Order By, Joins)
+        if re.search(r"proc\s+sql", code, re.I):
+            r_code = self._translate_proc_sql(code)
+            if r_code: return r_code, 0.95, "Rule_ProcSQL"
             
         # No deterministic rule matched
         return None, 0.0, "NoRuleMatched"
@@ -163,3 +168,162 @@ class RuleEngine:
             return f"{out_ds} <- {in_ds} %>%\n  filter({r_cond})\n{out_ds}"
         else:
             return f"{out_ds} <- {in_ds}[{in_ds}${r_cond}, ]\n{out_ds}"
+
+    def _translate_proc_sql(self, code: str) -> Optional[str]:
+        if not re.search(r"proc\s+sql", code, re.I):
+            return None
+
+        # Clean code block
+        code_clean = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+        code_clean = re.sub(r';\s*quit;', ';', code_clean, flags=re.I)
+
+        # 1. Output dataset
+        out_m = re.search(r"create\s+table\s+([\w.]+)\s+as", code_clean, re.I)
+        out_ds = out_m.group(1).split('.')[-1].upper() if out_m else "RESULT"
+
+        # 2. Input dataset
+        from_m = re.search(r"\bfrom\s+([\w.]+)(?:\s+(\w+))?", code_clean, re.I)
+        if not from_m:
+            return None
+        in_ds = from_m.group(1).split('.')[-1].upper()
+
+        # Check for JOIN
+        join_m = re.search(r"(left|right|inner|full)?\s*join\s+([\w.]+)(?:\s+(\w+))?\s+on\s+(.*?)(?=\bwhere\b|\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        join_ds = None
+        join_type = "left_join"
+        join_on = None
+        if join_m:
+            jtype = (join_m.group(1) or "left").lower()
+            join_type = f"{jtype}_join"
+            join_ds = join_m.group(2).split('.')[-1].upper()
+            join_on_raw = join_m.group(4).strip()
+            on_match = re.search(r"(?:\w+\.)?(\w+)\s*=\s*(?:\w+\.)?(\w+)", join_on_raw, re.I)
+            if on_match:
+                join_on = f'"{on_match.group(1).lower()}"'
+
+        # 3. SELECT clause items
+        select_m = re.search(r"\bselect\s+(.*?)\s+\bfrom\b", code_clean, re.I | re.DOTALL)
+        if not select_m:
+            return None
+        select_str = select_m.group(1).strip()
+
+        # 4. WHERE clause
+        where_m = re.search(r"\bwhere\s+(.*?)(?=\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        where_cond = None
+        if where_m:
+            w_raw = where_m.group(1).strip()
+            w_raw = re.sub(r'^\w+\.', '', w_raw)
+            w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
+            where_cond = w_raw.strip()
+
+        # 5. GROUP BY clause
+        group_m = re.search(r"\bgroup\s+by\s+(.*?)(?=\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        group_vars = []
+        if group_m:
+            g_raw = group_m.group(1).strip()
+            group_vars = [re.sub(r'^\w+\.', '', v.strip()) for v in g_raw.split(',') if v.strip()]
+
+        # 6. HAVING clause
+        having_m = re.search(r"\bhaving\s+(.*?)(?=\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        having_cond = None
+        if having_m:
+            h_raw = having_m.group(1).strip()
+            h_raw = re.sub(r'calculated\s+', '', h_raw, flags=re.I)
+            h_raw = re.sub(r'^\w+\.', '', h_raw)
+            h_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', h_raw)
+            having_cond = h_raw.strip()
+
+        # 7. ORDER BY clause
+        order_m = re.search(r"\border\s+by\s+(.*?)(?:;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        order_terms = []
+        if order_m:
+            o_raw = order_m.group(1).strip()
+            o_raw = re.sub(r'calculated\s+', '', o_raw, flags=re.I)
+            for item in o_raw.split(','):
+                item = item.strip()
+                if not item: continue
+                is_desc = bool(re.search(r'\bdesc\b', item, re.I))
+                clean_var = re.sub(r'\bdesc\b', '', item, flags=re.I).strip()
+                clean_var = re.sub(r'^\w+\.', '', clean_var)
+                if is_desc:
+                    order_terms.append(f"desc({clean_var})")
+                else:
+                    order_terms.append(clean_var)
+
+        # Parse select items
+        summarise_items = []
+        select_parts = [p.strip() for p in select_str.split(',') if p.strip()]
+
+        for item in select_parts:
+            if item == '*' or item.lower().endswith('.*'):
+                continue
+
+            alias = None
+            alias_m = re.search(r'^(.*?)\s+as\s+(\w+)$', item, re.I) or re.search(r'^(.*?)\s+(\w+)$', item, re.I)
+            if alias_m:
+                expr_candidate = alias_m.group(1).strip()
+                alias_candidate = alias_m.group(2).strip()
+                if alias_candidate.lower() not in ("from", "where", "group", "by", "having", "order", "as"):
+                    expr = expr_candidate
+                    alias = alias_candidate
+                else:
+                    expr = item
+            else:
+                expr = item
+
+            # Check aggregate functions
+            if re.search(r'count\s*\(\s*\*\s*\)', expr, re.I):
+                a_name = alias or "total_orders"
+                summarise_items.append(f"{a_name} = n()")
+            elif re.search(r'count\s*\(\s*(\w+)\s*\)', expr, re.I):
+                c_var = re.search(r'count\s*\(\s*(\w+)\s*\)', expr, re.I).group(1)
+                a_name = alias or f"count_{c_var}"
+                summarise_items.append(f"{a_name} = sum(!is.na({c_var}))")
+            elif re.search(r'sum\s*\(\s*([\w.]+)\s*\)', expr, re.I):
+                s_var = re.search(r'sum\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
+                a_name = alias or f"total_{s_var}"
+                summarise_items.append(f"{a_name} = sum({s_var}, na.rm = TRUE)")
+            elif re.search(r'(?:avg|mean)\s*\(\s*([\w.]+)\s*\)', expr, re.I):
+                m_var = re.search(r'(?:avg|mean)\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
+                a_name = alias or f"avg_{m_var}"
+                summarise_items.append(f"{a_name} = mean({m_var}, na.rm = TRUE)")
+            elif re.search(r'max\s*\(\s*([\w.]+)\s*\)', expr, re.I):
+                mx_var = re.search(r'max\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
+                a_name = alias or f"max_{mx_var}"
+                summarise_items.append(f"{a_name} = max({mx_var}, na.rm = TRUE)")
+            elif re.search(r'min\s*\(\s*([\w.]+)\s*\)', expr, re.I):
+                mn_var = re.search(r'min\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
+                a_name = alias or f"min_{mn_var}"
+                summarise_items.append(f"{a_name} = min({mn_var}, na.rm = TRUE)")
+
+        lines = [f"{out_ds} <- {in_ds}"]
+
+        if join_ds:
+            if join_on:
+                lines.append(f"  dplyr::{join_type}({join_ds}, by = {join_on})")
+            else:
+                lines.append(f"  dplyr::{join_type}({join_ds})")
+
+        if where_cond:
+            lines.append(f"  dplyr::filter({where_cond})")
+
+        if group_vars:
+            g_str = ", ".join(group_vars)
+            lines.append(f"  dplyr::group_by({g_str})")
+
+        if summarise_items:
+            s_str = ",\n    ".join(summarise_items)
+            lines.append(f"  dplyr::summarise(\n    {s_str},\n    .groups = \"drop\"\n  )")
+
+        if having_cond:
+            lines.append(f"  dplyr::filter({having_cond})")
+
+        if order_terms:
+            o_str = ", ".join(order_terms)
+            lines.append(f"  dplyr::arrange({o_str})")
+
+        if len(lines) == 1:
+            return None
+
+        pipeline = " %>%\n".join(lines)
+        return f"{pipeline}\n{out_ds}"
