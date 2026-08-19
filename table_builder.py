@@ -308,19 +308,10 @@ def build_enhance_prompt(current_code, custom_request, available_cols=None):
 
 
 def call_llm(prompt, groq_client, gemini_client):
+    from llm_router import get_llm_router
     try:
-        res = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        return res.choices[0].message.content
-    except Exception:
-        pass
-    try:
-        return gemini_client.models.generate_content(
-            model="gemini-2.0-flash", contents=prompt
-        ).text
+        resp = get_llm_router().generate(prompt)
+        return resp.text
     except Exception:
         return None
 

@@ -323,16 +323,21 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         f"SAS STEP:\n{step}"
     )
 
+from llm_router import get_llm_router
+
+def call_llm_api(prompt, uploaded_csvs, known_tables, r_dialect="Modern R (tidyverse)"):
+    """
+    Calls LLMRouter (Gemini primary, Groq fallback) to generate R code.
+    """
+    router = get_llm_router()
     try:
-        res = groq_client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': prompt}],
-            temperature=0
-        )
-        raw = res.choices[0].message.content
-    except Exception:
-        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=prompt).text
-    return clean_r_code(raw)
+        resp = router.generate(prompt)
+        if resp.fallback_occurred and resp.warning_msg:
+            import streamlit as st
+            st.caption(f"⚠️ {resp.warning_msg}")
+        return clean_r_code(resp.text)
+    except Exception as e:
+        raise RuntimeError(f"LLM conversion failed: {e}")
 
 def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
@@ -429,33 +434,12 @@ def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
         "Fix the R code to match SAS output exactly. Return only corrected R code ending with df."
     ])
 
+    router = get_llm_router()
     try:
-        res = groq_client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': fix_prompt}],
-            temperature=0
-        )
-        raw = res.choices[0].message.content
-    except Exception:
-        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
-    return clean_r_code(raw)
-    
-    fix_prompt = (
-        f"This R code produced wrong output compared to SAS.\n"
-        f"ORIGINAL R CODE:\n{r_code}\n"
-        f"ORIGINAL SAS CODE:\n{step}\n"
-        f"MISMATCH DETAILS:\n{mismatch_info}\n"
-        f"Fix the R code to match SAS output exactly. Return only corrected R code ending with df."
-    )
-    try:
-        res = groq_client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': fix_prompt}],
-            temperature=0
-        )
-        raw = res.choices[0].message.content
-    except Exception:
-        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+        resp = router.generate("\n".join(fix_prompt))
+        return clean_r_code(resp.text)
+    except Exception as e:
+        return r_code
  
 def parse_datalines(step):
     """Extracts raw data from SAS datalines/cards block."""
@@ -561,14 +545,10 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                     # Auto-fix: feed error back to LLM and retry once
                     fix_prompt = f"This R code failed:\n{r_code}\nError:\n{str(r_err)}\nFix it. Return only corrected R code ending with df."
                     try:
-                        res_fix = groq_client.chat.completions.create(
-                            model='llama-3.3-70b-versatile',
-                            messages=[{'role': 'user', 'content': fix_prompt}],
-                            temperature=0
-                        )
-                        fixed_raw = res_fix.choices[0].message.content
+                        resp = get_llm_router().generate(fix_prompt)
+                        fixed_raw = resp.text
                     except Exception:
-                        fixed_raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+                        fixed_raw = r_code
                     r_code = clean_r_code(fixed_raw)
                     res_entry["r_code"] = r_code
                     res_entry["auto_fixed"] = True

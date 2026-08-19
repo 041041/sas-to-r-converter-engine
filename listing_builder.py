@@ -204,20 +204,12 @@ names(df) <- trimws(names(df))
 # LLM ENHANCEMENT
 # ─────────────────────────────────────────────
 def call_llm(prompt, groq_client, gemini_client):
+    from llm_router import get_llm_router
     try:
-        res = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        raw = res.choices[0].message.content
+        resp = get_llm_router().generate(prompt)
+        raw = resp.text
     except Exception:
-        try:
-            raw = gemini_client.models.generate_content(
-                model="gemini-2.0-flash", contents=prompt
-            ).text
-        except Exception:
-            return None
+        return None
     # Clean code blocks
     raw = re.sub(r'```[rR]?\n?', '', raw)
     raw = re.sub(r'```', '', raw)

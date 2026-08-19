@@ -400,19 +400,11 @@ def render_graph_builder_tab():
                     )
                     raw = None
                     try:
-                        res = groq_client.chat.completions.create(
-                            model='llama-3.3-70b-versatile',
-                            messages=[{'role': 'user', 'content': enhance_prompt}],
-                            temperature=0
-                        )
-                        raw = res.choices[0].message.content
+                        from llm_router import get_llm_router
+                        resp = get_llm_router().generate(enhance_prompt)
+                        raw = resp.text
                     except Exception:
-                        try:
-                            raw = gemini_client.models.generate_content(
-                                model='gemini-2.0-flash', contents=enhance_prompt
-                            ).text
-                        except Exception:
-                            st.warning("⚠️ Enhancement failed, using base code.")
+                        st.warning("⚠️ Enhancement failed, using base code.")
 
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
@@ -1098,19 +1090,11 @@ def render_clinical_graphs_tab():
                     )
                     raw = None
                     try:
-                        res = groq_client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "user", "content": enhance_prompt}],
-                            temperature=0
-                        )
-                        raw = res.choices[0].message.content
+                        from llm_router import get_llm_router
+                        resp = get_llm_router().generate(enhance_prompt)
+                        raw = resp.text
                     except Exception:
-                        try:
-                            raw = gemini_client.models.generate_content(
-                                model="gemini-2.0-flash", contents=enhance_prompt
-                            ).text
-                        except Exception:
-                            st.warning("⚠️ Enhancement failed, using base code.")
+                        st.warning("⚠️ Enhancement failed, using base code.")
 
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)

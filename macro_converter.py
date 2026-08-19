@@ -1697,21 +1697,12 @@ class LLMConverter:
             "17. Return ONLY the R function code — no explanations, no markdown fences\n"
         )
 
-        raw = None
+        from llm_router import get_llm_router
         try:
-            res = self.groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0
-            )
-            raw = res.choices[0].message.content
+            resp = get_llm_router().generate(prompt)
+            raw = resp.text
         except Exception:
-            try:
-                raw = self.gemini.models.generate_content(
-                    model="gemini-2.0-flash", contents=prompt
-                ).text
-            except Exception:
-                return f"# Could not convert macro %{ir.name} — manual conversion needed\n", 0.0
+            return f"# Could not convert macro %{ir.name} — manual conversion needed\n", 0.0
 
         # Strip markdown fences
         raw = re.sub(r'```[rR]?\n?', '', raw)

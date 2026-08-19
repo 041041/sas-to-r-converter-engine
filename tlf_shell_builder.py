@@ -205,10 +205,10 @@ def _groq_available() -> bool:
 
 
 def _call_gemini(prompt: str) -> str:
-    """Call Gemini directly. Raises on any error."""
-    return _gemini.models.generate_content(
-        model="gemini-2.0-flash", contents=prompt
-    ).text
+    """Call LLMRouter directly."""
+    from llm_router import get_llm_router
+    resp = get_llm_router().generate(prompt)
+    return resp.text
 
 
 def _call_groq(prompt: str) -> str:
@@ -3400,20 +3400,11 @@ b. Note: xx""",
                 with st.spinner("🤖 Applying enhancement..."):
                     raw = None
                     try:
-                        # Groq first (fast), Gemini fallback — same order as graph_builder
-                        res = _groq.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "user", "content": enhance_prompt}],
-                            temperature=0
-                        )
-                        raw = res.choices[0].message.content
+                        from llm_router import get_llm_router
+                        resp = get_llm_router().generate(enhance_prompt)
+                        raw = resp.text
                     except Exception:
-                        try:
-                            raw = _gemini.models.generate_content(
-                                model="gemini-2.0-flash", contents=enhance_prompt
-                            ).text
-                        except Exception:
-                            st.warning("⚠️ Enhancement failed — using base code.")
+                        st.warning("⚠️ Enhancement failed — using base code.")
 
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
