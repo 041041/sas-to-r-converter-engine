@@ -107,7 +107,9 @@ class SASMacroSemanticsEngine:
             ))
 
         # 4. Expand macro calls & loops semantically
-        expanded_code = self._evaluate_semantics(clean_code, ast)
+        from macro_processor import expand_sas_macros
+        expanded_code, proc_warnings, hints = expand_sas_macros(clean_code)
+        self.warnings.extend(proc_warnings)
 
         # 5. Calculate Honest Confidence Report
         report = self._build_honest_report(expanded_code, ast)

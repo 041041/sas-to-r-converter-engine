@@ -188,7 +188,7 @@ class RuleEngine:
         in_ds = from_m.group(1).split('.')[-1].upper()
 
         # Check for JOIN
-        join_m = re.search(r"(left|right|inner|full)?\s*join\s+([\w.]+)(?:\s+(\w+))?\s+on\s+(.*?)(?=\bwhere\b|\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        join_m = re.search(r"(left|right|inner|full)?\s*join\s+([\w.]+)(?:\s+(?:as\s+)?\w+)?\s+on\s+(.*?)(?=\bwhere\b|\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
         join_ds = None
         join_type = "left_join"
         join_on = None
@@ -196,7 +196,7 @@ class RuleEngine:
             jtype = (join_m.group(1) or "left").lower()
             join_type = f"{jtype}_join"
             join_ds = join_m.group(2).split('.')[-1].upper()
-            join_on_raw = join_m.group(4).strip()
+            join_on_raw = join_m.group(3).strip()
             on_match = re.search(r"(?:\w+\.)?(\w+)\s*=\s*(?:\w+\.)?(\w+)", join_on_raw, re.I)
             if on_match:
                 join_on = f'"{on_match.group(1).lower()}"'

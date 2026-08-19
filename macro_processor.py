@@ -160,12 +160,20 @@ class SASMacroProcessor:
     # ── STEP 5: SUBSTITUTE %LET VARS ────────────────────────────
 
     def _substitute_let_vars(self, code: str, let_dict: dict) -> str:
-        """Replace &var and &var. references with their values."""
-        for name, value in let_dict.items():
-            # &NAME. (with dot separator)
-            code = re.sub(rf'&{name}\.', value, code, flags=re.IGNORECASE)
-            # &NAME (without dot)
-            code = re.sub(rf'&{name}\b', value, code, flags=re.IGNORECASE)
+        """Replace &var and &var. references with their values, handling indirect && references."""
+        for _ in range(5):
+            orig_code = code
+            for name, value in let_dict.items():
+                if not name:
+                    continue
+                # &NAME. (with dot separator)
+                code = re.sub(rf'&{name}\.', str(value), code, flags=re.IGNORECASE)
+                # &NAME (without dot)
+                code = re.sub(rf'&{name}\b', str(value), code, flags=re.IGNORECASE)
+            # Collapse && -> &
+            code = re.sub(r'&&', '&', code)
+            if code == orig_code:
+                break
         return code
 
     # ── STEP 6: EXPAND %DO LOOPS ────────────────────────────────
@@ -173,8 +181,11 @@ class SASMacroProcessor:
     def _expand_do_loops(self, code: str, local_vars: dict = None) -> str:
         """
         Expand %do i = start %to end; body %end; loops.
-        Handles nested loops recursively.
+        Handles nested loops recursively and substitutes loop-local %let statements.
         """
+        vars_to_sub = {**self.let_vars, **(local_vars or {})}
+        code = self._substitute_let_vars(code, vars_to_sub)
+
         pattern = re.compile(
             r'%do\s+(\w+)\s*=\s*(\d+)\s*%to\s*(\d+)(?:\s*%by\s*(\d+))?\s*;(.*?)%end\s*;',
             re.IGNORECASE | re.DOTALL
@@ -188,11 +199,22 @@ class SASMacroProcessor:
             body  = match.group(5)
 
             expanded = ""
+            iter_vars = {**vars_to_sub}
             for i in range(start, end + 1, step):
                 iteration = body
-                # substitute loop variable
-                iteration = re.sub(rf'&{var}\.', str(i), iteration, flags=re.IGNORECASE)
-                iteration = re.sub(rf'&{var}\b', str(i), iteration, flags=re.IGNORECASE)
+                iter_vars[var] = str(i)
+                iteration = self._substitute_let_vars(iteration, iter_vars)
+
+                # Process local %let in iteration e.g. %let current_ds = &&ds&i;
+                for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', iteration, re.IGNORECASE):
+                    let_name = lm.group(1).upper()
+                    let_val_raw = lm.group(2).strip()
+                    let_val_sub = self._substitute_let_vars(let_val_raw, iter_vars)
+                    iter_vars[let_name] = let_val_sub
+
+                iteration = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', iteration, flags=re.IGNORECASE)
+                iteration = self._substitute_let_vars(iteration, iter_vars)
+                iteration = self._evaluate_if_else(iteration, iter_vars)
                 expanded += iteration + "\n"
             return expanded
 
@@ -231,7 +253,7 @@ class SASMacroProcessor:
 
     # ── STEP 8: EXPAND MACRO CALLS ──────────────────────────────
 
-    def _expand_macro_calls(self, code: str, depth: int) -> str:
+    def _expand_macro_calls(self, code: str, depth: int, local_vars: dict = None) -> str:
         """
         Recursively expand macro calls in code.
         Handles: %macro_name; and %macro_name(args);
@@ -293,7 +315,6 @@ class SASMacroProcessor:
                         if '=' in arg:
                             k, v = arg.split('=', 1)
                             arg_dict[k.strip().lstrip('&').upper()] = v.strip()
-                        # positional — match by order
                     # Fill positional args
                     positional_vals = [
                         v for k, v in sorted(
@@ -309,6 +330,11 @@ class SASMacroProcessor:
                             local_let[param] = positional_vals[i]
                         else:
                             local_let[param] = ""  # default empty
+
+                # Substitute global & caller %let vars in local parameter values
+                caller_vars = {**self.let_vars, **(local_vars or {})}
+                for k, v in list(local_let.items()):
+                    local_let[k] = self._substitute_let_vars(str(v), caller_vars)
 
                 # Substitute global %let vars first
                 expanded = self._substitute_let_vars(body, self.let_vars)
@@ -366,26 +392,74 @@ class SASMacroProcessor:
 
     def _evaluate_if_else(self, code: str, local_vars: dict) -> str:
         """
-        Evaluate %if condition %then %do; ... %end; %else %do; ... %end;
-        Also handles single-statement %if/%then without %do.
+        Evaluate SAS macro IF-THEN-ELSE structures:
+        %if cond %then %do; ... %end;
+        %else %if cond2 %then %do; ... %end;
+        %else %do; ... %end;
         """
-        # Full %do block form
-        block_pattern = re.compile(
-            r'%if\s+(.*?)\s*%then\s*%do\s*;(.*?)%end\s*;'
-            r'(?:\s*%else\s*%do\s*;(.*?)%end\s*;)?',
-            re.IGNORECASE | re.DOTALL
-        )
+        pos = 0
+        while pos < len(code):
+            m_if = re.search(r'%if\s+(.*?)\s*%then\s*%do\s*;', code[pos:], re.IGNORECASE)
+            if not m_if:
+                break
 
-        def eval_block(match):
-            condition  = match.group(1).strip()
-            then_block = match.group(2) or ""
-            else_block = match.group(3) or ""
-            if self._evaluate_condition(condition, local_vars):
-                return then_block
-            else:
-                return else_block
+            start_pos = pos + m_if.start()
+            curr = pos + m_if.end()
+            branches = []
+            default_block = None
 
-        code = block_pattern.sub(eval_block, code)
+            # 1. First %if
+            cond = m_if.group(1).strip()
+            m_end = re.search(r'%end\s*;', code[curr:], re.IGNORECASE)
+            if not m_end:
+                pos = curr
+                continue
+            block = code[curr : curr + m_end.start()]
+            branches.append((cond, block))
+            curr = curr + m_end.end()
+            end_pos = curr
+
+            # 2. Subsequent %else %if or %else
+            while curr < len(code):
+                m_else_if = re.match(r'\s*%else\s*%if\s+(.*?)\s*%then\s*%do\s*;', code[curr:], re.IGNORECASE)
+                if m_else_if:
+                    cond_e = m_else_if.group(1).strip()
+                    curr += m_else_if.end()
+                    m_e_end = re.search(r'%end\s*;', code[curr:], re.IGNORECASE)
+                    if not m_e_end:
+                        break
+                    block_e = code[curr : curr + m_e_end.start()]
+                    branches.append((cond_e, block_e))
+                    curr += m_e_end.end()
+                    end_pos = curr
+                    continue
+
+                m_else = re.match(r'\s*%else\s*%do\s*;', code[curr:], re.IGNORECASE)
+                if m_else:
+                    curr += m_else.end()
+                    m_e_end = re.search(r'%end\s*;', code[curr:], re.IGNORECASE)
+                    if not m_e_end:
+                        break
+                    default_block = code[curr : curr + m_e_end.start()]
+                    curr += m_e_end.end()
+                    end_pos = curr
+                    break
+
+                break
+
+            # Evaluate branches
+            selected = ""
+            matched = False
+            for b_cond, b_block in branches:
+                if self._evaluate_condition(b_cond, local_vars):
+                    selected = b_block
+                    matched = True
+                    break
+            if not matched and default_block is not None:
+                selected = default_block
+
+            code = code[:start_pos] + selected + code[end_pos:]
+            pos = start_pos + len(selected)
 
         # Single statement form: %if cond %then statement;
         single_pattern = re.compile(
@@ -412,10 +486,14 @@ class SASMacroProcessor:
         """
         Evaluate a simple SAS macro condition.
         Supports: =, ne, ^=, >, <, >=, <=, and, or, not
-        Also handles %symexist, blank checks.
+        Also handles %symexist, %upcase, %lowcase, blank checks.
         """
         # Substitute variables
         cond = self._substitute_let_vars(condition, {**self.let_vars, **local_vars})
+
+        # Evaluate SAS macro functions in condition
+        cond = re.sub(r'%upcase\s*\(\s*(.*?)\s*\)', lambda m: m.group(1).upper(), cond, flags=re.IGNORECASE)
+        cond = re.sub(r'%lowcase\s*\(\s*(.*?)\s*\)', lambda m: m.group(1).lower(), cond, flags=re.IGNORECASE)
 
         # Normalize operators
         cond = re.sub(r'\bne\b',  '!=', cond, flags=re.IGNORECASE)
@@ -427,6 +505,7 @@ class SASMacroProcessor:
         cond = re.sub(r'\bor\b',  'or', cond, flags=re.IGNORECASE)
         cond = re.sub(r'\bnot\b', 'not',cond, flags=re.IGNORECASE)
         cond = re.sub(r'\^=',     '!=', cond)
+        cond = re.sub(r'(?<![<>!=])=(?!=)', '==', cond)
 
         # Handle %symexist(var) — check if macro var is defined
         cond = re.sub(
@@ -435,12 +514,7 @@ class SASMacroProcessor:
             cond, flags=re.IGNORECASE
         )
 
-        # Handle blank check: var = (empty string)
-        cond = re.sub(r"=\s*''", "== ''", cond)
-        cond = re.sub(r'ne\s*""',  "!= ''", cond, flags=re.IGNORECASE)
-
         # Convert SAS string comparison to Python
-        # e.g.  flag = HIGH  →  'HIGH' == 'HIGH'
         def quote_bare_word(m):
             word = m.group(1)
             if word.upper() in ('AND', 'OR', 'NOT', 'TRUE', 'FALSE'):
