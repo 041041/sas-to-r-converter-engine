@@ -31,10 +31,11 @@ class TestPhase7GeminiPrimaryGroqFallback(unittest.TestCase):
         self.assertEqual(router.primary_provider, "gemini")
         self.assertEqual(router.fallback_provider, "groq")
 
-    def test_02_gemini_model_is_gemini_2_5_flash(self):
-        """TEST 2: Gemini model is gemini-2.5-flash."""
+    def test_02_gemini_model_is_gemini_3_6_flash(self):
+        """TEST 2: Gemini primary model is gemini-3.6-flash and NOT gemini-2.5-flash."""
         gemini_p = GeminiProvider()
-        self.assertEqual(gemini_p.model, "gemini-2.5-flash")
+        self.assertEqual(gemini_p.model, "gemini-3.6-flash")
+        self.assertNotEqual(gemini_p.model, "gemini-2.5-flash")
 
     def test_03_groq_fallback_model_is_llama_3_3_70b_versatile(self):
         """TEST 3: Groq fallback model is llama-3.3-70b-versatile."""
@@ -45,7 +46,7 @@ class TestPhase7GeminiPrimaryGroqFallback(unittest.TestCase):
         """TEST 4: Gemini succeeds → Groq is NOT called (Groq calls = 0)."""
         mock_gemini = MagicMock(spec=GeminiProvider)
         mock_gemini.is_available.return_value = True
-        mock_gemini.generate.return_value = ("RESULT <- ORDERS %>% dplyr::filter(age >= 18)", "gemini-2.5-flash")
+        mock_gemini.generate.return_value = ("RESULT <- ORDERS %>% dplyr::filter(age >= 18)", "gemini-3.6-flash")
 
         mock_groq = MagicMock(spec=GroqProvider)
         mock_groq.is_available.return_value = True
@@ -54,7 +55,7 @@ class TestPhase7GeminiPrimaryGroqFallback(unittest.TestCase):
         response = router.generate("Test prompt")
 
         self.assertEqual(response.provider_used, "Gemini")
-        self.assertEqual(response.model_used, "gemini-2.5-flash")
+        self.assertEqual(response.model_used, "gemini-3.6-flash")
         self.assertFalse(response.fallback_occurred)
         self.assertEqual(router.gemini_call_count, 1)
         self.assertEqual(router.groq_call_count, 0)

@@ -14,7 +14,7 @@ from tlf_shell_builder import render_shell_tlf_tab
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
-st.warning("🚀 Phase 7 Architecture — Primary: Gemini (gemini-2.5-flash) | Fallback: Groq (llama-3.3-70b-versatile)")
+st.warning("🚀 Phase 7 Architecture — Primary: Gemini (gemini-3.6-flash) | Fallback: Groq (llama-3.3-70b-versatile)")
 
 for key, default in {
     "sas_input": "",

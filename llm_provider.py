@@ -50,7 +50,7 @@ class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, client: Optional[Any] = None):
         self.api_key = api_key
         self.client = client
-        self.model = "gemini-2.5-flash"
+        self.model = "gemini-3.6-flash"
 
     def _fetch_api_key(self) -> Optional[str]:
         if self.api_key:

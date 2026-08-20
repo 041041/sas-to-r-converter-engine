@@ -17,7 +17,7 @@ logger = logging.getLogger("LLMRouter")
 class LLMRouter:
     """
     Centralized Router enforcing:
-    Primary: Gemini (gemini-2.5-flash)
+    Primary: Gemini (gemini-3.6-flash)
     Fallback: Groq (llama-3.3-70b-versatile)
     """
 
@@ -51,7 +51,7 @@ class LLMRouter:
 
         # Try Primary Gemini Provider
         if self.gemini.is_available():
-            logger.info("[LLM] Primary: Gemini (gemini-2.5-flash)")
+            logger.info("[LLM] Primary: Gemini (gemini-3.6-flash)")
             self.gemini_call_count += 1
             try:
                 text, model_used = self.gemini.generate(prompt)
