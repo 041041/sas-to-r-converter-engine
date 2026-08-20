@@ -151,23 +151,91 @@ class RuleEngine:
         out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
         set_m = re.search(r"set\s+([\w.]+)", code, re.I)
         if not out_m or not set_m: return None
-        
+
         out_ds = out_m.group(1).split('.')[-1].upper()
         in_ds = set_m.group(1).split('.')[-1].upper()
+        code_clean = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+
+        # 1. Collect all subsetting IF / WHERE statements (ending with semicolon, without THEN)
+        filters = []
+        for f_match in re.finditer(r'(?:if|where)\s+([^;]+?);', code_clean, re.I):
+            stmt = f_match.group(1).strip()
+            if not re.search(r'\bthen\b', stmt, re.I):
+                r_cond = re.sub(r'(?<![<>!=])=(?!=)', '==', stmt)
+                r_cond = re.sub(r'\band\b', ' & ', r_cond, flags=re.I)
+                r_cond = re.sub(r'\bor\b', ' | ', r_cond, flags=re.I)
+                filters.append(r_cond.strip())
+
+        # 2. Collect simple variable assignments (e.g. STUDY = "STUDY001";)
+        mutates = []
+        for a_match in re.finditer(r'^\s*(\w+)\s*=\s*([^;]+);', code_clean, re.I | re.M):
+            var_name = a_match.group(1).strip().upper()
+            val_expr = a_match.group(2).strip()
+            if var_name not in ("SET", "DATA", "LENGTH", "KEEP", "DROP", "RENAME") and not re.search(r'^(if|where|proc|run)\b', var_name, re.I):
+                if "%sysfunc" in val_expr.lower() or "today()" in val_expr.lower():
+                    mutates.append(f'{var_name} = Sys.Date()')
+                else:
+                    mutates.append(f'{var_name} = {val_expr}')
+
+        # 3. Collect IF-THEN-ELSE derivation chains
+        lines_code = [l.strip() for l in code_clean.split('\n') if l.strip()]
+        idx = 0
+        while idx < len(lines_code):
+            line = lines_code[idx]
+            m_if = re.match(r'if\s+(.*?)\s+then\s+(\w+)\s*=\s*(.*?);', line, re.I)
+            if m_if:
+                cond1 = m_if.group(1).strip()
+                var_name = m_if.group(2).strip().upper()
+                val1 = m_if.group(3).strip()
+                cases = [(cond1, val1)]
+                default_val = None
+
+                j = idx + 1
+                while j < len(lines_code):
+                    next_line = lines_code[j]
+                    m_else_if = re.match(r'else\s+if\s+(.*?)\s+then\s+' + var_name + r'\s*=\s*(.*?);', next_line, re.I)
+                    if m_else_if:
+                        cases.append((m_else_if.group(1).strip(), m_else_if.group(2).strip()))
+                        j += 1
+                        continue
+
+                    m_else = re.match(r'else\s+' + var_name + r'\s*=\s*(.*?);', next_line, re.I)
+                    if m_else:
+                        default_val = m_else.group(1).strip()
+                        j += 1
+                        break
+                    break
+
+                idx = j
+                cw_parts = []
+                for c, v in cases:
+                    rc = re.sub(r'(?<![<>!=])=(?!=)', '==', c)
+                    rc = re.sub(r'\band\b', ' & ', rc, flags=re.I)
+                    rc = re.sub(r'\bor\b', ' | ', rc, flags=re.I)
+                    cw_parts.append(f'{rc} ~ {v}')
+                if default_val is not None:
+                    def_v = "NA_real_" if default_val in ('.', 'NA') else default_val
+                    cw_parts.append(f'TRUE ~ {def_v}')
+
+                mutates.append(f'{var_name} = case_when(' + ', '.join(cw_parts) + ')')
+                continue
+            idx += 1
+
+        pipe_lines = [f"{out_ds} <- {in_ds}"]
+        if filters:
+            pipe_lines.append("  filter(" + ", ".join(filters) + ")")
+        if mutates:
+            pipe_lines.append("  mutate(\n    " + ",\n    ".join(mutates) + "\n  )")
+
+        if self.is_tidyverse and len(pipe_lines) > 1:
+            return " %>%\n".join(pipe_lines) + f"\n{out_ds}"
+        elif not self.is_tidyverse:
+            return f"{out_ds} <- {in_ds}\n{out_ds}"
         
-        # Simple IF condition like `if age >= 18;` or `where age >= 18;`
-        filter_m = re.search(r"(?:if|where)\s+(.*?);", code, re.I)
-        if not filter_m: return None
-        
-        sas_cond = filter_m.group(1).strip()
-        r_cond = re.sub(r'(?<![<>!=])=(?!=)', '==', sas_cond)
-        r_cond = re.sub(r'\band\b', '&&', r_cond, flags=re.I)
-        r_cond = re.sub(r'\bor\b', '||', r_cond, flags=re.I)
-        
-        if self.is_tidyverse:
-            return f"{out_ds} <- {in_ds} %>%\n  filter({r_cond})\n{out_ds}"
-        else:
-            return f"{out_ds} <- {in_ds}[{in_ds}${r_cond}, ]\n{out_ds}"
+        # Simple fallback filter if single filter
+        if filters:
+            return f"{out_ds} <- {in_ds} %>%\n  filter({filters[0]})\n{out_ds}"
+        return f"{out_ds} <- {in_ds}\n{out_ds}"
 
     def _translate_proc_sql(self, code: str) -> Optional[str]:
         if not re.search(r"proc\s+sql", code, re.I):
@@ -231,8 +299,17 @@ class RuleEngine:
 
             expr_clean = re.sub(r'\s+', '', expr.lower())
 
+            # Check conditional sum e.g. sum(case when serious = "Y" then 1 else 0 end)
+            case_sum_m = re.search(r'sum\s*\(\s*case\s+when\s+([\w.]+)\s*=\s*["\']?(\w+)["\']?\s+then\s+1\s+else\s+0\s+end\s*\)', expr, re.I)
+            if case_sum_m:
+                col_name = case_sum_m.group(1).split('.')[-1]
+                val_name = case_sum_m.group(2)
+                a_name = alias or f"{col_name}_count"
+                summarise_items.append(f"{a_name} = sum({col_name} == \"{val_name}\", na.rm = TRUE)")
+                alias_map[expr_clean] = a_name
+                alias_map[f"sum({col_name}==\"{val_name}\")"] = a_name
             # Check aggregate functions
-            if re.search(r'count\s*\(\s*\*\s*\)', expr, re.I):
+            elif re.search(r'count\s*\(\s*\*\s*\)', expr, re.I):
                 a_name = alias or "total_orders"
                 summarise_items.append(f"{a_name} = n()")
                 alias_map["count(*)"] = a_name

@@ -1,85 +1,76 @@
-# EMERGENCY DIAGNOSTIC & GEMINI 429 ROOT CAUSE REPORT
-**Enterprise SAS-to-R Modernization Engine**
+# FORENSIC REPORT — REAL GEMINI 429 ROOT CAUSE ANALYSIS
+
+**Date**: 2026-08-20  
+**Target Workspace**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
+**Master Original**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` (**READ-ONLY / UNTOUCHED**)
 
 ---
 
-### 📊 DIAGNOSTIC FINDINGS SUMMARY
+## 🎯 ANSWER TO THE CORE FORENSIC QUESTION
 
-1. **APPLICATION EXECUTION PATH**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`
-2. **PYTHON INTERPRETER**: `/Users/sandeep/opt/anaconda3/bin/python3` (Python 3.9.13)
-3. **GIT COMMIT & BRANCH**: Commit `f017e68` on branch `phase4-llm-provider-groq`
-4. **ACTIVE STREAMLIT PROCESSES**: 0 background Streamlit processes running
-5. **HARD SAFETY GUARD**: `DISABLE_GEMINI=true` implemented & verified (**0 network requests to Google**)
+> **"WHO is calling `gemini-2.5-flash`, FROM WHICH FILE, ON WHICH GIT COMMIT, AND WHY?"**
+
+### 1. WHO is calling `gemini-2.5-flash`?
+`safe_generate_gemini_content()` inside **`llm_helper.py`**.
+
+### 2. FROM WHICH FILE & LINE?
+- **`llm_helper.py`**:
+  - Line 10: `GEMINI_MODELS = ["gemini-2.5-flash", "gemini-1.5-flash", ...]`
+  - Line 28: `res = client.models.generate_content(model=model, contents=contents)`
+- **`app.py`**:
+  - Line 317: `from llm_helper import safe_generate_gemini_content, safe_generate_groq_content`
+  - Line 325-326:
+    ```python
+    try:
+        raw = safe_generate_groq_content(groq_client, prompt)
+    except Exception:
+        res = safe_generate_gemini_content(gemini_client, prompt)
+    ```
+  - Lines 428, 442, 552: Direct `safe_generate_gemini_content(gemini_client, fix_prompt)` calls for auto-fix repair.
+
+### 3. ON WHICH GIT COMMIT & BRANCH?
+- **Deployed GitHub Commit**: `503cdd0ec305a66947f50fe2669b5e5bc78be534` on branch **`main`** of repository `https://github.com/041041/sas-to-r-converter-engine.git`.
+- **Local Development Branch**: `phase4-groq-primary` (Commit `02d16f645...`).
+
+### 4. WHY is it happening at runtime on Streamlit Cloud?
+1. **Deployment Mismatch**: Streamlit Cloud deploys from GitHub `origin/main` (`503cdd0`). On `origin/main`, `llm_helper.py` and the hardcoded Gemini fallback in `app.py` are active.
+2. **Local Isolation**: Our Phase 6 Groq-only architecture (`llm_router.py`, `llm_provider.py`, updated `app.py`) was implemented locally on branch `phase4-groq-primary` and **has NEVER been merged to `main` or pushed to GitHub `origin/main`**.
+3. **Groq Key / Client Failure on Streamlit Cloud**: On Streamlit Cloud, `safe_generate_groq_content` fails (due to missing/unconfigured `GROQ_API_KEY` in Streamlit Cloud Secrets), triggering the fallback block `safe_generate_gemini_content(gemini_client, prompt)`. This attempts to call `gemini-2.5-flash` via the Google GenAI SDK, hitting the Google Free Tier quota and throwing `429 RESOURCE_EXHAUSTED`.
 
 ---
 
-## 1. Environment & Process Audit
+## 📊 GIT IDENTITY & BRANCH COMPARISON MATRIX
 
-- **Current Working Directory**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`
-- **Git Top-Level Workspace**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`
-- **Application Files Discovered on Machine**:
-  1. `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned/app.py` (Development workspace — Active)
-  2. `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter/app.py` (Master Original — READ-ONLY)
-  3. `/Users/sandeep/.gemini/antigravity/scratch/clinical_rag_app/app.py` (Unrelated app)
-  4. `/Users/sandeep/.gemini/antigravity/scratch/clinical_rag_app_backup_20260722_153524/app.py` (Unrelated app)
-
----
-
-## 2. Root Cause Analysis: Why 429 Occurred
-
-1. **First Request Network Call**: When `LLMRouter.generate()` executes for the very first time in an un-cached session, `GeminiProvider.generate()` attempts primary execution via Google's SDK (`client.models.generate_content(model='gemini-2.5-flash', contents=prompt)`).
-2. **External Quota Condition**: Google's API server returns HTTP 429 `RESOURCE_EXHAUSTED` (`GenerateRequestsPerDayPerProjectPerModel-FreeTier limit: 20`).
-3. **Fallback Execution**: `LLMRouter` catches the HTTP 429 exception, logs `[LLM] Gemini: 429 RESOURCE_EXHAUSTED`, opens the circuit (`self.circuit_open_gemini = True`), and routes immediately to Groq.
-4. **Why 429 was Visible**: In order for the router to detect that Gemini's free-tier quota is exhausted, 1 HTTP network request reached Google's servers.
+| Attribute | Local Cleaned Workspace | GitHub Remote Repository |
+| :--- | :--- | :--- |
+| **Branch** | `phase4-groq-primary` | `main` (Default branch deployed by Streamlit) |
+| **Commit Hash** | `02d16f6459a7215b1712583faf64114823e18878` | `503cdd0ec305a66947f50fe2669b5e5bc78be534` |
+| **Contains `llm_helper.py`?** | **NO** (Replaced by `llm_router.py` & `llm_provider.py`) | **YES** (Legacy file calling `gemini-2.5-flash`) |
+| **`app.py` Routing** | `LLMRouter` (Groq-Only, 0 Gemini calls) | `safe_generate_gemini_content` fallback |
+| **Gemini Network Calls** | **0** (Proven via monkeypatch test) | **Active** (Hits Google Free Tier 429) |
 
 ---
 
-## 3. Temporary Hard Safety Guard (`DISABLE_GEMINI=true`)
+## 🧪 LOCAL INSTRUMENTATION & TESTING RESULTS
 
-To eliminate ALL live network calls to Google's servers during development when quota is exhausted:
+| Scenario | Local Test Result | Gemini SDK Calls | Groq Provider Used |
+| :--- | :--- | :--- | :--- |
+| **Groq Success** | `RESULT <- ORDERS` | **0** | `Groq` (`llama-3.3-70b-versatile`) |
+| **Groq Failure** | `RuntimeError("GROQ conversion failed...")` | **0** | `None` (Zero fallback to Gemini) |
+| **Streamlit Import (`GEMINI_API_KEY` absent)** | PASS (`gemini_client = None`) | **0** | `None` |
 
-1. **Implementation**: Added `DISABLE_GEMINI` check in `llm_provider.py` & `llm_router.py`:
-   ```python
-   if os.environ.get("DISABLE_GEMINI", "").lower() in ("true", "1", "yes"):
-       raise GeminiDisabledForDevelopment("Gemini API calls disabled via DISABLE_GEMINI environment variable.")
+---
+
+## 💡 RECOMMENDED MINIMAL FIX (Awaiting User Action)
+
+To stop Gemini `429 RESOURCE_EXHAUSTED` on the live Streamlit Cloud application:
+
+1. **Configure `GROQ_API_KEY` in Streamlit Cloud Secrets**:
+   Go to **Streamlit Cloud Dashboard** $\rightarrow$ **App Settings** $\rightarrow$ **Secrets**, and paste:
+   ```toml
+   GROQ_API_KEY = "gsk_your_actual_groq_key_here"
+   LLM_PRIMARY_PROVIDER = "groq"
+   DISABLE_GEMINI = "true"
    ```
-2. **Behavior**: Setting `DISABLE_GEMINI=true` in the environment blocks the SDK call before network dispatch, raises `GeminiDisabledForDevelopment` internally, opens circuit, and routes 100% of LLM traffic straight to Groq.
-3. **Verification**: `test_suite/test_disable_gemini_guard.py` passed cleanly (**0 SDK calls issued**).
-
----
-
-## 4. Environment Variables Audit
-
-- `GEMINI_API_KEY`: Present in environment
-- `GROQ_API_KEY`: Present in environment
-- `DISABLE_GEMINI`: Implemented & active when set
-- `GROQ_MODEL`: Configured (`llama-3.3-70b-versatile`)
-- *(Secret values masked and unprinted)*
-
----
-
-## 5. Backend Regression Test Suite Results
-
-All tests executed with **0 live Gemini API calls**:
-
-| Test Suite | Mode | Result |
-|---|---|---|
-| **Python Syntax Compilation** | Syntax Check | **PASS (0 syntax errors)** |
-| **Phase 1.5 Benchmark Torture** | Offline | **PASS (Levels 1–8 complete)** |
-| **Phase 2 Macro Semantics** | Unittest | **PASS (7 / 7 tests passed)** |
-| **Phase 3 Semantic Conversion** | Unittest | **PASS (12 / 12 tests passed)** |
-| **LLM Provider Unit Suite (`test_llm_provider.py`)** | Mock Unittest | **PASS (10 / 10 tests passed)** |
-| **Offline Fallback Simulation (`test_offline_fallback_simulation.py`)** | Integration Mock | **PASS (1 / 1 test passed)** |
-| **DISABLE_GEMINI Safety Guard (`test_disable_gemini_guard.py`)** | Mock Unittest | **PASS (1 / 1 test passed)** |
-| **Total Test Suite** | **All Suites** | **39 / 39 PASSED (100% Pass Rate)** |
-
----
-
-## 6. Master Original Repository Integrity
-
-- **Master Path**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter`
-- **Status Check**: `git -C /Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter status --short` verified 0 modifications (**100% UNTOUCHED and READ-ONLY**).
-
----
-
-**Diagnostic complete. Report created at `test_suite/GEMINI_429_ROOT_CAUSE_REPORT.md`. Execution stopped.**
+2. **Merge & Push Phase 6 Branch to GitHub `main`**:
+   Once approved by the user, merge the local `phase4-groq-primary` branch into `main` and push to `https://github.com/041041/sas-to-r-converter-engine.git`. This will update the code deployed on Streamlit Cloud to our Groq-Only Phase 6 architecture (`llm_router.py` & `llm_provider.py`) and eliminate `llm_helper.py`.

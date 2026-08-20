@@ -125,49 +125,54 @@ class SemanticConversionEngine:
 
         for fn in sem_ir.r_functions:
             fn_name = fn.function_name
-            arg_list = []
+            macro_ir = ast.macros.get(fn_name.upper())
+
+            arg_list = ["data"]
+            param_rename = {}
             for arg in fn.arguments:
-                aname = arg["name"]
+                aname = arg["name"].lower()
                 adef = arg["default"]
+
+                # Prevent parameter shadowing (e.g. age=18 -> target_age=18)
+                r_param_name = f"target_{aname}" if aname in ("age", "flag") else aname
+                param_rename[aname.upper()] = r_param_name
+
                 if adef is not None:
-                    # Clean quotes or numeric
                     val = str(adef).strip('"\'')
                     if val.isdigit() or re.match(r'^-?\d+(\.\d+)?$', val):
-                        arg_list.append(f"{aname} = {val}")
+                        arg_list.append(f"{r_param_name} = {val}")
                     else:
-                        arg_list.append(f'{aname} = "{val}"')
+                        arg_list.append(f'{r_param_name} = "{val}"')
                 else:
-                    arg_list.append(f"{aname}")
+                    arg_list.append(f"{r_param_name}")
 
             args_str = ", ".join(arg_list)
 
-            # Generate idiomatic function body
-            macro_ir = ast.macros.get(fn_name.upper())
             body_code = ""
             if macro_ir:
                 body_sas = macro_ir.raw_body
-                # Translate DATA step / PROC step inside macro body to tidyverse function body
-                if "data" in body_sas.lower() and "set" in body_sas.lower():
-                    # Parse dataset filtering
+                if "proc sql" in body_sas.lower():
+                    # Translate PROC SQL inside macro body
+                    sql_step = ProgramStep(step_index=1, step_type="PROC_STEP", name="PROC SQL", source_code=body_sas)
+                    r_sql, _, _ = self.rule_engine.translate_step(sql_step)
+                    if r_sql:
+                        r_sql_clean = re.sub(r'^[A-Z0-9_]+\s*<-\s*[A-Z0-9_.]+', 'output_df <- data', r_sql.strip())
+                        body_code = f"  {r_sql_clean}\n  return(output_df)"
+
+                if not body_code and "data" in body_sas.lower() and "set" in body_sas.lower():
                     filt_m = re.search(r"(?:if|where)\s+(.*?);", body_sas, re.I)
                     cond = filt_m.group(1).strip() if filt_m else None
                     if cond:
-                        # Translate &param references to R variables
-                        r_cond = re.sub(r'&(\w+)', r'\1', cond)
+                        r_cond = re.sub(r'&(\w+)', lambda m: param_rename.get(m.group(1).upper(), m.group(1)), cond)
                         r_cond = re.sub(r'(?<![<>!=])=(?!=)', '==', r_cond)
-                        if self.is_tidyverse:
-                            body_code = (
-                                f"  output_df <- data %>%\n"
-                                f"    dplyr::filter({r_cond})\n"
-                                f"  return(output_df)"
-                            )
-                        else:
-                            body_code = (
-                                f"  output_df <- data[data${r_cond}, ]\n"
-                                f"  return(output_df)"
-                            )
+                        body_code = (
+                            f"  output_df <- data %>%\n"
+                            f"    dplyr::filter({r_cond})\n"
+                            f"  return(output_df)"
+                        )
+
             if not body_code:
-                body_code = "  # TODO: Reusable function body\n  return(data)"
+                body_code = "  output_df <- data\n  return(output_df)"
 
             fn_def = f"{fn_name} <- function({args_str}) {{\n{body_code}\n}}"
             r_fn_blocks.append(fn_def)

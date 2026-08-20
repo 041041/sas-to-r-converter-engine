@@ -6,6 +6,7 @@ Enforces instant Groq fallback on 429 RESOURCE_EXHAUSTED without duplicate Gemin
 """
 
 from __future__ import annotations
+import os
 import logging
 from typing import Optional
 from llm_provider import GeminiProvider, GroqProvider, LLMResponse
@@ -33,16 +34,24 @@ class LLMRouter:
         """
         Executes prompt generation. In Groq-Primary mode, calls Groq directly without initializing Gemini.
         """
-        if self.primary_provider == "groq":
-            logger.info("[LLM Router] Mode: GROQ PRIMARY (Gemini disabled)")
+        # In Groq-Primary / Disable-Gemini mode (DEFAULT), route directly to Groq with zero Gemini calls
+        disable_gemini = os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes")
+        if self.primary_provider == "groq" or disable_gemini:
+            logger.info("[LLM Router] Mode: GROQ PRIMARY (Gemini hard-disabled)")
             self.groq_call_count += 1
-            text, model_used = self.groq.generate(prompt)
-            return LLMResponse(
-                text=text,
-                provider_used="Groq",
-                model_used=model_used,
-                fallback_occurred=False
-            )
+            if not self.groq.is_available():
+                raise RuntimeError("GROQ conversion failed. Gemini fallback is disabled. Manual review required. (Reason: GROQ_API_KEY unconfigured or unavailable)")
+            try:
+                text, model_used = self.groq.generate(prompt)
+                return LLMResponse(
+                    text=text,
+                    provider_used="Groq",
+                    model_used=model_used,
+                    fallback_occurred=False
+                )
+            except Exception as ge:
+                logger.error(f"[LLM Router] Groq failed: {ge}")
+                raise RuntimeError(f"GROQ conversion failed. Gemini fallback is disabled. Manual review required. (Groq Error: {ge})") from ge
 
         # If Gemini circuit is open (previously hit 429), skip Gemini and go straight to Groq
         if self.circuit_open_gemini:

@@ -231,38 +231,10 @@ def _call_groq(prompt: str) -> str:
 
 
 def _call_llm(prompt: str) -> str:
-    """
-    Try Gemini first, then Groq.
-
-    Switching logic:
-      - If Gemini key is missing/empty  → skip Gemini, go straight to Groq
-      - If Gemini returns auth error     → skip Gemini, go straight to Groq
-      - If Gemini is rate-limited (429)  → try Groq
-      - If Groq is rate-limited (429)
-        AND Gemini also failed with 429  → raise LLMRateLimitError (graceful skip)
-      - If Groq is rate-limited (429)
-        AND Gemini had auth/other error  → raise LLMRateLimitError (still graceful)
-      - Any other double failure         → raise RuntimeError
-
-    LLMRateLimitError is caught by node_fix so the pipeline ends gracefully
-    instead of crashing the LangGraph runner.
-    """
-    gemini_err = None
-    groq_err   = None
-
-    # ── Gemini ───────────────────────────────────────────────────────────
-    if _gemini_available():
-        try:
-            return _call_gemini(prompt)
-        except Exception as e:
-            gemini_err = e
-            # Auth errors (401/403) mean key is wrong — no point retrying Gemini
-            # Rate-limit on Gemini (429) — fall through to Groq
-            # Any other Gemini error     — fall through to Groq
-    else:
-        gemini_err = RuntimeError("GEMINI_API_KEY not configured")
-
-    # ── Groq fallback ────────────────────────────────────────────────────
+    """Route all requests to LLMRouter (Groq-Only)."""
+    from llm_router import get_llm_router
+    resp = get_llm_router().generate(prompt)
+    return resp.text
     if _groq_available():
         try:
             return _call_groq(prompt)

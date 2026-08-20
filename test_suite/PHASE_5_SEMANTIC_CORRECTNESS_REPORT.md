@@ -1,18 +1,18 @@
-# PHASE 5 — SEMANTIC CORRECTNESS & SAS→R EQUIVALENCE REPORT
+# PHASE 5 & 5.5 — SEMANTIC CORRECTNESS, COMPLETENESS & CLINICAL MACRO REPORT
 **Enterprise SAS-to-R Modernization Engine**
 
 ---
 
 ### 📊 EXECUTIVE SUMMARY
 
-- **USER CLINICAL MACRO TESTED & VERIFIED**: Successfully executed and validated the user's complex clinical SAS macro containing nested macro definitions (`build_population`, `summarize_ae`, `build_analysis`), dynamic macro references (`&&ds&i`), `%do` loops, `%if/%then/%else` conditional logic, `PROC SQL` aggregations, `HAVING` filters, `LEFT JOIN` operations, `DATA` step derivations, and `PROC SORT`.
-- **PHASE 5 CORRECTION APPLIED**: Fixed generic PROC SQL aggregate alias resolution in `RuleEngine._translate_proc_sql()`. The `HAVING` clause now resolves raw aggregate expressions (e.g. `having sum(amount) > 500`) and SAS `CALCULATED` keywords to the generated `SELECT` alias (e.g. `dplyr::filter(total_spent > 500)`), aligning post-aggregation filtering with tidyverse semantics.
+- **USER CLINICAL MACRO TESTED & VERIFIED**: Successfully executed and validated the user's complex clinical SAS macro containing nested macro definitions (`build_population`, `summarize_ae`, `build_analysis`), dynamic macro references (`&&ds&i`), `%do` loops unrolling across `%if/%else %if/%else` branches, `PROC SQL` aggregations, `HAVING` filters, `LEFT JOIN` operations, `DATA` step derivations (`serious_ae`, `SEXN`, `STUDYID`, `ANALYSIS_DATE`), and `PROC SORT`.
+- **STRICT EXPRESSION-LEVEL SEMANTIC VALIDATOR (PHASE 5.5)**: Upgraded `SemanticValidator` to perform strict expression-level validation. It verifies calculated column derivations (`serious_ae = sum(serious == "Y", na.rm = TRUE)`, `SEXN = case_when(...)`, `STUDYID`, `ANALYSIS_DATE = Sys.Date()`) and unrolled dataset pipelines (`EX_SUM` with all 5 aggregated columns: `exposure_records`, `total_dose`, `avg_dose`, `max_dose`, `min_dose`).
+- **DEPTH-BALANCED DO-LOOP UNROLLING & MACRO VAR ISOLATION**: Fixed `SASMacroProcessor` depth-balanced `%do/%end` block extraction (`_extract_do_end_block`), isolated loop-local `%let current_ds = &&ds&i;` evaluation during unrolling, and ignored dynamic `&` variables in top-level macro `%let` extraction.
+- **HAVING ALIAS RESOLUTION (PHASE 5)**: Fixed generic PROC SQL aggregate alias resolution in `RuleEngine._translate_proc_sql()`. The `HAVING` clause now resolves raw aggregate expressions (e.g. `having sum(amount) > 500`) and SAS `CALCULATED` keywords to the generated `SELECT` alias (e.g. `dplyr::filter(total_spent > 500)`).
 - **FALSE POSITIVES ELIMINATED**: Resolved false-positive passthrough assignments (`RESULT <- ORDERS`, `EX_SUM <- EX`, `ADAE_SUM <- AE`) where previous tests passed merely because valid R syntax compiled.
-- **DETERMINISTIC PROC SQL TRANSLATOR**: Implemented full `PROC SQL` AST parsing and translation in `RuleEngine` for `SELECT`, `GROUP BY`, aggregate functions (`COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`/`MEAN`, `MAX`, `MIN`), `HAVING` clauses, `ORDER BY` sorting, and `LEFT JOIN` operations.
-- **NEGATIVE & ALIAS RESOLUTION TESTS**: Implemented 12 explicit test cases covering passthrough assignments, missing operations, tests A–D for aggregate alias resolution, and Test 20 for complex nested clinical macros.
 - **GEMINI LIVE CALLS**: **EXACTLY 0 (Hard Disabled, `DISABLE_GEMINI=true`)**
 - **GROQ STATUS**: **ACTIVE PRIMARY PROVIDER (`llama-3.3-70b-versatile`)**
-- **TOTAL REGRESSION TESTS**: **81 / 81 PASSED (100% Pass Rate via `python3 -m unittest discover test_suite`)**
+- **TOTAL REGRESSION TESTS**: **83 / 83 PASSED (100% Pass Rate via `python3 -m unittest discover test_suite`)**
 - **MASTER ORIGINAL REPOSITORY**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` (**100% UNTOUCHED and READ-ONLY**)
 
 ---

@@ -178,34 +178,41 @@ class SASMacroProcessor:
 
     # ── STEP 6: EXPAND %DO LOOPS ────────────────────────────────
 
-    def _expand_do_loops(self, code: str, local_vars: dict = None) -> str:
+    def _expand_do_loops(self, code_str: str, local_vars: dict = None) -> str:
         """
         Expand %do i = start %to end; body %end; loops.
-        Handles nested loops recursively and substitutes loop-local %let statements.
+        Handles nested loops recursively using balanced block extraction and substitutes loop-local %let statements.
         """
         vars_to_sub = {**self.let_vars, **(local_vars or {})}
-        code = self._substitute_let_vars(code, vars_to_sub)
+        code_str = self._substitute_let_vars(code_str, vars_to_sub)
 
-        pattern = re.compile(
-            r'%do\s+(\w+)\s*=\s*(\d+)\s*%to\s*(\d+)(?:\s*%by\s*(\d+))?\s*;(.*?)%end\s*;',
-            re.IGNORECASE | re.DOTALL
-        )
+        pos = 0
+        while pos < len(code_str):
+            m = re.search(r'%do\s+(\w+)\s*=\s*(.*?)\s*%to\s*(.*?)(?:\s*%by\s*(.*?))?\s*;', code_str[pos:], re.IGNORECASE)
+            if not m:
+                break
+            start_idx = pos + m.start()
+            var = m.group(1).upper()
+            start_str = self._substitute_let_vars(m.group(2).strip(), vars_to_sub)
+            end_str = self._substitute_let_vars(m.group(3).strip(), vars_to_sub)
+            step_str = self._substitute_let_vars(m.group(4).strip(), vars_to_sub) if m.group(4) else "1"
+            try:
+                start = int(start_str)
+                end   = int(end_str)
+                step  = int(step_str)
+            except ValueError:
+                start, end, step = 1, 1, 1
 
-        def expand(match):
-            var   = match.group(1).upper()
-            start = int(match.group(2))
-            end   = int(match.group(3))
-            step  = int(match.group(4) or 1)
-            body  = match.group(5)
+            body_offset = pos + m.end()
+            body, end_pos = self._extract_do_end_block(code_str, body_offset)
+            if body is None:
+                pos = body_offset
+                continue
 
             expanded = ""
-            iter_vars = {**vars_to_sub}
             for i in range(start, end + 1, step):
+                iter_vars = {**vars_to_sub, var: str(i)}
                 iteration = body
-                iter_vars[var] = str(i)
-                iteration = self._substitute_let_vars(iteration, iter_vars)
-
-                # Process local %let in iteration e.g. %let current_ds = &&ds&i;
                 for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', iteration, re.IGNORECASE):
                     let_name = lm.group(1).upper()
                     let_val_raw = lm.group(2).strip()
@@ -216,16 +223,10 @@ class SASMacroProcessor:
                 iteration = self._substitute_let_vars(iteration, iter_vars)
                 iteration = self._evaluate_if_else(iteration, iter_vars)
                 expanded += iteration + "\n"
-            return expanded
+            code_str = code_str[:start_idx] + expanded + code_str[end_pos:]
+            pos = start_idx + len(expanded)
 
-        # Up to 5 passes for nested loops
-        for _ in range(5):
-            new_code = pattern.sub(expand, code)
-            if new_code == code:
-                break
-            code = new_code
-
-        return code
+        return code_str
 
     # ── STEP 7: DETECT SQL MACRO VARS ───────────────────────────
 
@@ -340,19 +341,20 @@ class SASMacroProcessor:
                 expanded = self._substitute_let_vars(body, self.let_vars)
                 # Then local parameter substitution
                 expanded = self._substitute_let_vars(expanded, local_let)
-                # Extract and apply local %let inside macro body
+                # Extract and apply non-dynamic local %let inside macro body
                 local_lets = {}
                 for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', expanded, re.IGNORECASE):
-                    local_lets[lm.group(1).upper()] = lm.group(2).strip()
+                    val = lm.group(2).strip()
+                    if '&' not in val:
+                        local_lets[lm.group(1).upper()] = val
                 if local_lets:
-                    expanded = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', expanded, flags=re.IGNORECASE)
                     expanded = self._substitute_let_vars(expanded, local_lets)
 
                 # Expand %do loops in body
-                expanded = self._expand_do_loops(expanded, {**self.let_vars, **local_let})
+                expanded = self._expand_do_loops(expanded, {**self.let_vars, **local_let, **local_lets})
 
                 # Evaluate %if/%then/%else in body
-                expanded = self._evaluate_if_else(expanded, {**self.let_vars, **local_let})
+                expanded = self._evaluate_if_else(expanded, {**self.let_vars, **local_let, **local_lets})
 
                 changed = True
                 return expanded + "\n"
@@ -388,6 +390,23 @@ class SASMacroProcessor:
             args.append(current.strip())
         return args
 
+    def _extract_do_end_block(self, code_str: str, start_offset: int) -> tuple[str | None, int | None]:
+        """Extract balanced %do; ... %end; block respecting nested %do / %end."""
+        depth = 1
+        for m in re.finditer(r'(%do\b|%end\b)', code_str[start_offset:], re.IGNORECASE):
+            tok = m.group(1).lower()
+            if tok == '%do':
+                depth += 1
+            elif tok == '%end':
+                depth -= 1
+                if depth == 0:
+                    block = code_str[start_offset : start_offset + m.start()]
+                    end_pos = start_offset + m.end()
+                    if code_str[end_pos:end_pos+1] == ';':
+                        end_pos += 1
+                    return block, end_pos
+        return None, None
+
     # ── HELPER: EVALUATE %IF/%ELSE ───────────────────────────────
 
     def _evaluate_if_else(self, code: str, local_vars: dict) -> str:
@@ -410,13 +429,11 @@ class SASMacroProcessor:
 
             # 1. First %if
             cond = m_if.group(1).strip()
-            m_end = re.search(r'%end\s*;', code[curr:], re.IGNORECASE)
-            if not m_end:
-                pos = curr
+            block, curr = self._extract_do_end_block(code, curr)
+            if block is None:
+                pos = pos + m_if.end()
                 continue
-            block = code[curr : curr + m_end.start()]
             branches.append((cond, block))
-            curr = curr + m_end.end()
             end_pos = curr
 
             # 2. Subsequent %else %if or %else
@@ -425,23 +442,20 @@ class SASMacroProcessor:
                 if m_else_if:
                     cond_e = m_else_if.group(1).strip()
                     curr += m_else_if.end()
-                    m_e_end = re.search(r'%end\s*;', code[curr:], re.IGNORECASE)
-                    if not m_e_end:
+                    block_e, curr = self._extract_do_end_block(code, curr)
+                    if block_e is None:
                         break
-                    block_e = code[curr : curr + m_e_end.start()]
                     branches.append((cond_e, block_e))
-                    curr += m_e_end.end()
                     end_pos = curr
                     continue
 
                 m_else = re.match(r'\s*%else\s*%do\s*;', code[curr:], re.IGNORECASE)
                 if m_else:
                     curr += m_else.end()
-                    m_e_end = re.search(r'%end\s*;', code[curr:], re.IGNORECASE)
-                    if not m_e_end:
+                    block_e, curr = self._extract_do_end_block(code, curr)
+                    if block_e is None:
                         break
-                    default_block = code[curr : curr + m_e_end.start()]
-                    curr += m_e_end.end()
+                    default_block = block_e
                     end_pos = curr
                     break
 

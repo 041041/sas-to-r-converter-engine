@@ -37,8 +37,7 @@ class TestDisableGeminiGuard(unittest.TestCase):
             resp = router.generate("TASK: Convert SAS step")
 
             self.assertEqual(resp.provider_used, "Groq")
-            self.assertTrue(resp.fallback_occurred)
-            self.assertIn("switched to Groq", resp.warning_msg)
+            self.assertFalse(resp.fallback_occurred)
 
             # CRITICAL VERIFICATION: Gemini SDK client models.generate_content WAS NEVER CALLED!
             mock_gemini_client.models.generate_content.assert_not_called()

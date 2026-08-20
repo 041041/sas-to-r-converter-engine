@@ -570,7 +570,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                 res_entry["elapsed_total"] = time.time() - step_start
             else:
                 if active_df is None:
-                    raise ValueError(f"Input dataset '{source_name or 'WORK'}' not found.")
+                    raise ValueError(f"Input dataset '{source_name or 'WORK'}' not found. Please upload the CSV/Excel file for '{source_name or 'WORK'}' or switch App Mode to 'Convert Only' in the sidebar.")
 
                 # Time the LLM call
                 llm_start = time.time()
@@ -812,7 +812,7 @@ with st.sidebar:
 # --- STREAMLIT UI ---
 if page == "🔄 SAS Converter":
   st.title("🔄 Smart SAS to R Converter")
-  st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
+  st.caption("Groq Llama 3.3 70B | Executes R via Rscript | Compares output vs SAS expected")
   st.divider()
      
   # --- SAS INPUT ---

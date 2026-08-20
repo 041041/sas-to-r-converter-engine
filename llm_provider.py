@@ -84,7 +84,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def generate(self, prompt: str) -> tuple[str, str]:
         if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes") or os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
-            raise GeminiDisabledError("Gemini API calls hard disabled in development mode.")
+            raise GeminiDisabledError("Gemini is disabled. Groq is the only active LLM provider.")
 
         client = self._get_client()
         if not client:

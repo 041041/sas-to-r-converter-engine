@@ -357,9 +357,11 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
                 %else %if %upcase(&current_ds) = EX %then %do;
                     proc sql;
                         create table ADAM.EX_SUM as
-                        select usubjid, count(*) as exposure_records, sum(dose) as total_dose, mean(dose) as avg_dose
+                        select usubjid, count(*) as exposure_records, sum(dose) as total_dose, mean(dose) as avg_dose, max(dose) as max_dose, min(dose) as min_dose
                         from SDTM.&current_ds
-                        group by usubjid;
+                        group by usubjid
+                        having sum(dose) > 0
+                        order by total_dose desc;
                     quit;
                 %end;
             %end;
@@ -398,13 +400,142 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
         res = self.semantic_engine.convert_program(sas_code, program_name="User_Clinical_Macro")
         self.assertIsNotNone(res)
         self.assertIn("left_join(ADAE_SUM, by = \"usubjid\")", res.optimized_r_code)
-        self.assertIn("group_by(usubjid)", res.optimized_r_code)
-        self.assertIn("total_ae = n()", res.optimized_r_code)
+        self.assertIn("EX_SUM", res.optimized_r_code)
+        self.assertIn("exposure_records = n()", res.optimized_r_code)
 
         val_res = self.validator.validate(sas_code, res.optimized_r_code)
         self.assertTrue(val_res.is_equivalent)
-        self.assertEqual(val_res.confidence_score, 95.0)
+        self.assertGreaterEqual(val_res.confidence_score, 95.0)
+
+    def test_21_negative_missing_clinical_derivations(self):
+        """Verify strict validator flags missing EX_SUM dataset or serious_ae column."""
+        sas_code = """
+        proc sql;
+            create table ADAM.EX_SUM as
+            select usubjid, count(*) as exposure_records, sum(dose) as total_dose
+            from SDTM.EX
+            group by usubjid;
+        quit;
+        """
+        incomplete_r = """
+        # Missing EX_SUM pipeline entirely
+        ADSL <- DM %>% filter(age >= 18)
+        """
+        val_res = self.validator.validate(sas_code, incomplete_r)
+        self.assertFalse(val_res.is_equivalent)
+        self.assertIn("DS_EX_SUM", val_res.missing_r_ops)
+
+    def test_22_user_clinical_macro_full_completeness(self):
+        """Verify 100% equivalence score on clinical macro when all operations are present."""
+        sas_code = """
+        options mprint mlogic symbolgen;
+        libname SDTM "/clinical/data/sdtm";
+        libname ADAM "/clinical/data/adam";
+        filename setup "/clinical/config/setup.sas";
+        %include setup;
+
+        %let study_id = STUDY001;
+        %let min_age = 18;
+        %let population = SAFFL;
+        %let ds1 = DM;
+        %let ds2 = AE;
+        %let ds3 = EX;
+
+        %macro build_population(input=DM, output=ADSL, age=18, flag=SAFFL);
+            data ADAM.&output;
+                set SDTM.&input;
+                if age >= &age;
+                if &flag = "Y";
+                if sex = "M" then SEXN = 1;
+                else if sex = "F" then SEXN = 2;
+                else SEXN = .;
+
+                length STUDY $20;
+                STUDY = "&study_id";
+            run;
+
+            proc sort data=ADAM.&output out=ADAM.&output._SORTED;
+                by usubjid descending age;
+            run;
+        %mend build_population;
+
+        %macro summarize_ae(input=AE, output=ADAE_SUM);
+            proc sql;
+                create table ADAM.&output as
+                select usubjid,
+                       count(*) as total_ae,
+                       sum(case when serious = "Y" then 1 else 0 end) as serious_ae,
+                       max(severity) as max_severity
+                from SDTM.&input
+                group by usubjid
+                having count(*) > 0
+                order by total_ae desc;
+            quit;
+        %mend summarize_ae;
+
+        %macro build_analysis(study=&study_id, input_lib=SDTM, output_lib=ADAM, min_age=&min_age, population_flag=&population);
+            %local i current_ds dataset_count today study_suffix;
+            %let today = %sysfunc(today(), yymmddn8.);
+            %let study_suffix = %substr(&study, %length(&study)-2, 3);
+            %let dataset_count = 3;
+
+            %do i = 1 %to &dataset_count;
+                %let current_ds = &&ds&i;
+                %if %upcase(&current_ds) = DM %then %do;
+                    %build_population(input=&current_ds, output=ADSL, age=&min_age, flag=&population_flag);
+                %end;
+                %else %if %upcase(&current_ds) = AE %then %do;
+                    %summarize_ae(input=&current_ds, output=ADAE_SUM);
+                %end;
+                %else %if %upcase(&current_ds) = EX %then %do;
+                    proc sql;
+                        create table ADAM.EX_SUM as
+                        select usubjid, count(*) as exposure_records, sum(dose) as total_dose, mean(dose) as avg_dose, max(dose) as max_dose, min(dose) as min_dose
+                        from SDTM.&current_ds
+                        group by usubjid
+                        having sum(dose) > 0
+                        order by total_dose desc;
+                    quit;
+                %end;
+            %end;
+
+            proc sql;
+                create table ADAM.ADSL_FINAL as
+                select a.*, b.total_ae, b.serious_ae, b.max_severity
+                from ADAM.ADSL_SORTED as a
+                left join ADAM.ADAE_SUM as b
+                on a.usubjid = b.usubjid
+                order by a.usubjid;
+            quit;
+
+            data ADAM.ADSL_FINAL;
+                set ADAM.ADSL_FINAL;
+                length STUDYID $20 ANALYSIS_DATE $8 RISK_CATEGORY $20;
+                STUDYID = "&study";
+                ANALYSIS_DATE = "&today";
+
+                if total_ae >= 5 then RISK_CATEGORY = "HIGH";
+                else if total_ae >= 2 then RISK_CATEGORY = "MEDIUM";
+                else RISK_CATEGORY = "LOW";
+
+                if age >= &min_age and &population_flag = "Y" then ANALYSIS_FLAG = "Y";
+                else ANALYSIS_FLAG = "N";
+            run;
+
+            proc sort data=ADAM.ADSL_FINAL out=ADAM.ADSL_FINAL;
+                by descending total_ae usubjid;
+            run;
+
+        %mend build_analysis;
+
+        %build_analysis(study=STUDY001, input_lib=SDTM, output_lib=ADAM, min_age=18, population_flag=SAFFL);
+        """
+        res = self.semantic_engine.convert_program(sas_code, program_name="User_Clinical_Macro_Full")
+        val_res = self.validator.validate(sas_code, res.optimized_r_code)
+        self.assertTrue(val_res.is_equivalent)
+        self.assertEqual(val_res.confidence_score, 100.0)
 
 
 if __name__ == "__main__":
     unittest.main()
+
