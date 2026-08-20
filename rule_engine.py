@@ -352,6 +352,12 @@ class RuleEngine:
             return None
         select_str = select_m.group(1).strip()
 
+        # FAIL-CLOSED Safety Gate: Reject queries with unhandled CASE statements
+        total_cases = len(re.findall(r'\bcase\b', select_str, re.I))
+        supported_cases = len(re.findall(r'sum\s*\(\s*case\s+when', select_str, re.I))
+        if total_cases > supported_cases:
+            return None
+
         # Parse select items & build alias_map (e.g. "sum(amount)" -> "total_spent")
         summarise_items = []
         alias_map = {}  # { "sum(amount)": "total_spent", ... }

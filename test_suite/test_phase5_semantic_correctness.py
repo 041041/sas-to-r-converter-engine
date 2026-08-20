@@ -634,6 +634,38 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
 
         self.assertIn('inner_join(AE, by = "USUBJID")', r_code_ij)
 
+    def test_18_proc_sql_unhandled_case_safety_gate(self):
+        """Test 18: Verify complex CASE WHEN expressions cause RuleEngine to fail-closed (< 0.85 confidence)."""
+        sas_risk = """
+        proc sql;
+            create table RISK_ANALYSIS as
+            select
+                a.USUBJID,
+                a.TRT01A,
+                case
+                    when a.AGE >= 65 and a.SEX = "F" then "HIGH_RISK_F"
+                    when a.AGE >= 65 and a.SEX = "M" then "HIGH_RISK_M"
+                    when a.AGE >= 50 then "MODERATE_RISK"
+                    else "LOW_RISK"
+                end as RISK_GROUP,
+                case
+                    when a.TRT01A = "DrugA" then a.AGE * 1.10
+                    when a.TRT01A = "DrugB" then a.AGE * 1.20
+                    else a.AGE
+                end as ADJUSTED_VALUE
+            from ADSL as a
+            where a.AGE is not null
+            order by calculated ADJUSTED_VALUE desc;
+        quit;
+        """
+        step = ProgramStep(step_index=1, step_type="PROC_STEP", name="RISK_ANALYSIS", source_code=sas_risk, input_datasets=["ADSL"], output_datasets=["RISK_ANALYSIS"])
+        r_code, conf, method = self.rule_engine.translate_step(step)
+
+        # RuleEngine MUST reject this step (< 0.85 confidence) so it routes to Gemini primary LLM
+        self.assertLess(conf, 0.85)
+        self.assertEqual(method, "NoRuleMatched")
+        self.assertIsNone(r_code)
+
 
 if __name__ == "__main__":
     unittest.main()
