@@ -122,7 +122,10 @@ class GroqProvider(BaseLLMProvider):
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, client: Optional[Any] = None):
         self.api_key = api_key
-        self.model = model or os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        raw_model = model or os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile"
+        if any(k in raw_model.lower() for k in ["3.1", "llama3-70b", "llama-3.1-70b"]):
+            raw_model = "llama-3.3-70b-versatile"
+        self.model = raw_model
         self.client = client
 
     def _fetch_api_key(self) -> Optional[str]:

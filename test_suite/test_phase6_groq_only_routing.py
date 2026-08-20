@@ -48,6 +48,15 @@ class TestPhase6GroqOnlyRouting(unittest.TestCase):
         """TEST 2B: Verify GroqProvider default model is llama-3.3-70b-versatile and deprecated model is NOT used."""
         groq_p = GroqProvider()
         self.assertEqual(groq_p.model, "llama-3.3-70b-versatile")
+
+        # Test GROQ_MODEL environment variable resolution
+        with patch.dict(os.environ, {"GROQ_MODEL": "llama-3.1-70b-versatile"}):
+            groq_env_override = GroqProvider()
+            self.assertEqual(groq_env_override.model, "llama-3.3-70b-versatile", "Legacy model env override must be coerced to 3.3!")
+
+        with patch.dict(os.environ, {}, clear=True):
+            groq_unset = GroqProvider()
+            self.assertEqual(groq_unset.model, "llama-3.3-70b-versatile")
         
         # Verify fallback list in GroqProvider.generate contains NO decommissioned llama-3.1 model
         mock_client = MagicMock()
