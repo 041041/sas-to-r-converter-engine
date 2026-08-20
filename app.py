@@ -9,6 +9,8 @@ from listing_builder import render_listing_builder_tab
 from macro_processor import expand_sas_macros, has_macros
 from macro_converter import convert_macros_to_r
 from tlf_shell_builder import render_shell_tlf_tab
+from rule_engine import RuleEngine
+from sas_ast import ProgramStep
 
 
 # --- CONFIGURATION ---
