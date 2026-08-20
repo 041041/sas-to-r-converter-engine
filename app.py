@@ -224,6 +224,35 @@ def is_valid_r_code(text: str) -> bool:
     return any(ind in text for ind in r_indicators)
 
 
+def validate_r_syntax(text: str) -> bool:
+    """
+    Validates R code syntax by executing Rscript -e "parse(file=...)" without executing code.
+    Returns True if syntax is valid, False if syntax error occurs.
+    """
+    if not text or not text.strip():
+        return False
+
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".R", delete=False) as f:
+        f.write(text)
+        f_path = f.name
+
+    try:
+        cmd = ["Rscript", "-e", f"parse(file='{f_path}')"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        return res.returncode == 0
+    except Exception:
+        return False
+    finally:
+        if os.path.exists(f_path):
+            try:
+                os.remove(f_path)
+            except Exception:
+                pass
+
+
 def clean_r_code(text):
     """Strips markdown fences, validates R output contract, and cleans code."""
     if not text:
@@ -258,7 +287,7 @@ def clean_r_code(text):
 
         # Filter out conversational prose lines that lack strong R syntax indicators
         r_indicators = ["<-", "%>%", "c(", "list(", "[", "]", "function(", "filter(", "mutate(", "select(", "arrange(", "group_by(", "summarise(", "case_when("]
-        has_r_op = any(ind in clean_line for ind in r_indicators) or "=" in clean_line or clean_line.endswith(")") or clean_line.endswith("%") or clean_line.isupper() or clean_line == "df"
+        has_r_op = any(ind in clean_line for ind in r_indicators) or "=" in clean_line or clean_line.endswith(")") or clean_line.endswith(",") or clean_line.endswith("}") or clean_line.endswith("%") or clean_line.isupper() or clean_line == "df"
         if not has_r_op:
             continue
 
@@ -316,7 +345,9 @@ def clean_r_code(text):
         parts = cleaned.split("df <- ")
         cleaned = "df <- " + parts[-1]
 
-    if not cleaned.strip().endswith("df"): cleaned += "\ndf"
+    last_line = cleaned.strip().split('\n')[-1].strip()
+    if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', last_line):
+        cleaned += "\ndf"
     return cleaned
 
 from llm_router import get_llm_router
@@ -402,6 +433,29 @@ def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyvers
         if not is_valid_r_code(cleaned):
             raise ValueError("LLM response failed R output contract validation (contained SAS syntax or prose commentary).")
         
+        # 1. R Syntax Validation Gate
+        if not validate_r_syntax(cleaned):
+            syntax_correction_prompt = (
+                f"{full_prompt}\n\n"
+                f"CRITICAL CORRECTION REQUIRED:\n"
+                f"The previous R output failed R syntax parsing.\n"
+                f"Return syntactically valid executable R code.\n"
+                f"Do not omit commas, parentheses, braces, or CASE/CASE_WHEN structure.\n"
+                f"Return the complete conversion exactly once."
+            )
+            try:
+                resp_retry = router.generate(syntax_correction_prompt)
+                cleaned_retry = clean_r_code(resp_retry.text)
+                if is_valid_r_code(cleaned_retry) and validate_r_syntax(cleaned_retry):
+                    from semantic_validator import validate_semantic_completeness
+                    is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), cleaned_retry)
+                    if is_comp_retry:
+                        return cleaned_retry
+            except Exception:
+                pass
+            raise ValueError("LLM response failed R syntax validation (parse error).")
+
+        # 2. Semantic Completeness Gate
         from semantic_validator import validate_semantic_completeness
         is_comp, exp_c, pres_c, miss_c = validate_semantic_completeness(str(step), cleaned)
         if not is_comp:
@@ -413,7 +467,7 @@ def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyvers
             try:
                 resp_retry = router.generate(correction_prompt)
                 cleaned_retry = clean_r_code(resp_retry.text)
-                if is_valid_r_code(cleaned_retry):
+                if is_valid_r_code(cleaned_retry) and validate_r_syntax(cleaned_retry):
                     is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), cleaned_retry)
                     if is_comp_retry:
                         return cleaned_retry
@@ -1126,7 +1180,7 @@ if page == "🔄 SAS Converter":
 
                               rule_valid = False
                               if r_rule_code and conf >= 0.85:
-                                  if is_valid_r_code(r_rule_code):
+                                  if is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code):
                                       from semantic_validator import validate_semantic_completeness
                                       is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
                                       if is_c:
