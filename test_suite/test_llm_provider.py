@@ -152,7 +152,7 @@ class TestLLMProviderAndRouter(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             self.router.generate("Step 1")
 
-        self.assertIn("Both Gemini and Groq providers failed", str(ctx.exception))
+        self.assertIn("LLM conversion failed. Gemini primary and Groq fallback both failed.", str(ctx.exception))
 
     def test_09_provider_selection_primary(self):
         """9. Verify Gemini is primary when available."""

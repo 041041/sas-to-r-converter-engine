@@ -115,7 +115,7 @@ class TestPhase6GroqOnlyRouting(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             router.generate("Convert SAS step")
 
-        self.assertIn("GROQ conversion failed. Gemini fallback is disabled. Manual review required.", str(ctx.exception))
+        self.assertIn("LLM conversion failed. Gemini primary and Groq fallback both failed.", str(ctx.exception))
         mock_gemini.generate.assert_not_called()
 
     def test_07_macro_converter_uses_groq_only(self):

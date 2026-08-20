@@ -14,8 +14,7 @@ from tlf_shell_builder import render_shell_tlf_tab
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
-BUILD_COMMIT = "52145f13bf6dca628fd8fdcecf6ed2e483896c24"
-st.warning(f"🚀 RUNNING_CLEANED_REPOSITORY_MARKER — Commit: {BUILD_COMMIT[:8]} — Active Groq Model: llama-3.3-70b-versatile")
+st.warning("🚀 Phase 7 Architecture — Primary: Gemini (gemini-2.5-flash) | Fallback: Groq (llama-3.3-70b-versatile)")
 
 for key, default in {
     "sas_input": "",

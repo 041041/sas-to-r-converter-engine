@@ -22,48 +22,36 @@ class LLMRouter:
     """
 
     def __init__(self, gemini_provider: Optional[GeminiProvider] = None, groq_provider: Optional[GroqProvider] = None):
-        import os
         self.gemini = gemini_provider or GeminiProvider()
         self.groq = groq_provider or GroqProvider()
         self.circuit_open_gemini: bool = False
-        self.primary_provider: str = os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower()
+        self.primary_provider: str = os.environ.get("LLM_PRIMARY_PROVIDER", "gemini").lower()
+        self.fallback_provider: str = "groq"
         self.gemini_call_count: int = 0
         self.groq_call_count: int = 0
 
     def generate(self, prompt: str) -> LLMResponse:
         """
-        Executes prompt generation. In Groq-Primary mode, calls Groq directly without initializing Gemini.
+        Executes prompt generation with Gemini Primary and Groq Fallback.
         """
-        # In Groq-Primary / Disable-Gemini mode (DEFAULT), route directly to Groq with zero Gemini calls
-        disable_gemini = os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes")
+        disable_gemini = os.environ.get("DISABLE_GEMINI", "false").lower() in ("true", "1", "yes")
+        
+        # Groq-Primary mode (only if explicitly overridden via env)
         if self.primary_provider == "groq" or disable_gemini:
-            logger.info("[LLM Router] Mode: GROQ PRIMARY (Gemini hard-disabled)")
-            self.groq_call_count += 1
-            if not self.groq.is_available():
-                raise RuntimeError("GROQ conversion failed. Gemini fallback is disabled. Manual review required. (Reason: GROQ_API_KEY unconfigured or unavailable)")
-            try:
-                text, model_used = self.groq.generate(prompt)
-                return LLMResponse(
-                    text=text,
-                    provider_used="Groq",
-                    model_used=model_used,
-                    fallback_occurred=False
-                )
-            except Exception as ge:
-                logger.error(f"[LLM Router] Groq failed: {ge}")
-                raise RuntimeError(f"GROQ conversion failed. Gemini fallback is disabled. Manual review required. (Groq Error: {ge})") from ge
+            logger.info("[LLM Router] Mode: GROQ PRIMARY (Gemini disabled)")
+            return self._call_groq_primary(prompt)
 
-        # If Gemini circuit is open (previously hit 429), skip Gemini and go straight to Groq
+        # Gemini Primary Mode (DEFAULT)
+        # If Gemini circuit is open (previously hit 429), skip Gemini and go straight to Groq fallback
         if self.circuit_open_gemini:
             logger.info("[LLM] Primary: Gemini (Circuit OPEN due to 429)")
             logger.info("[LLM] Gemini retry: SKIPPED")
             logger.info("[LLM] Fallback: Groq")
-            self.groq_call_count += 1
             return self._call_groq_fallback(prompt, warning="Gemini quota reached — switched to Groq.")
 
         # Try Primary Gemini Provider
         if self.gemini.is_available():
-            logger.info("[LLM] Primary: Gemini")
+            logger.info("[LLM] Primary: Gemini (gemini-2.5-flash)")
             self.gemini_call_count += 1
             try:
                 text, model_used = self.gemini.generate(prompt)
@@ -75,72 +63,42 @@ class LLMRouter:
                     fallback_occurred=False
                 )
             except Exception as e:
-                from llm_provider import GeminiDisabledForDevelopment
                 err_msg = str(e)
                 err_lower = err_msg.lower()
+                logger.warning(f"[LLM] Gemini failed ({err_msg}). Falling back to Groq...")
 
-                if isinstance(e, GeminiDisabledForDevelopment) or "disabled_gemini" in err_lower:
-                    logger.info("[LLM] Gemini: DISABLED_FOR_DEVELOPMENT")
-                    logger.info("[LLM] Gemini retry: SKIPPED")
-                    logger.info("[LLM] Fallback: Groq")
+                if any(k in err_lower for k in ["429", "resource_exhausted", "quota", "rate_limit"]):
                     self.circuit_open_gemini = True
-                    return self._call_groq_fallback(
-                        prompt,
-                        warning="Gemini disabled for development — switched to Groq.",
-                        error_type="DISABLED_FOR_DEVELOPMENT"
-                    )
-
-                # 1. Check for 429 RESOURCE_EXHAUSTED / Quota Limit
-                elif any(k in err_lower for k in ["429", "resource_exhausted", "quota", "rate_limit"]):
-                    logger.warning("[LLM] Gemini: 429 RESOURCE_EXHAUSTED")
-                    logger.warning("[LLM] Gemini retry: SKIPPED")
-                    logger.warning("[LLM] Fallback: Groq")
-                    self.circuit_open_gemini = True
-                    return self._call_groq_fallback(
-                        prompt,
-                        warning="Gemini quota reached — switched to Groq.",
-                        error_type="429 RESOURCE_EXHAUSTED"
-                    )
-
-                # 2. Check for 401 / 403 Auth errors
+                    return self._call_groq_fallback(prompt, warning="Gemini quota reached — switched to Groq.", error_type="429 RESOURCE_EXHAUSTED")
                 elif any(k in err_lower for k in ["401", "403", "invalid_api_key", "permission_denied"]):
-                    logger.warning(f"[LLM] Gemini: AUTH_ERROR ({err_msg})")
-                    logger.warning("[LLM] Gemini retry: SKIPPED")
-                    logger.warning("[LLM] Fallback: Groq")
-                    return self._call_groq_fallback(
-                        prompt,
-                        warning="Gemini authentication invalid — switched to Groq.",
-                        error_type="AUTH_ERROR"
-                    )
-
-                # 3. Check for 404 Model Not Found
+                    return self._call_groq_fallback(prompt, warning="Gemini authentication invalid — switched to Groq.", error_type="AUTH_ERROR")
                 elif any(k in err_lower for k in ["404", "not_found"]):
-                    logger.warning(f"[LLM] Gemini: MODEL_404 ({err_msg})")
-                    logger.warning("[LLM] Gemini retry: SKIPPED")
-                    logger.warning("[LLM] Fallback: Groq")
-                    return self._call_groq_fallback(
-                        prompt,
-                        warning="Gemini model unavailable — switched to Groq.",
-                        error_type="MODEL_404"
-                    )
-
-                # 4. Server error / Timeout / Network error
+                    return self._call_groq_fallback(prompt, warning="Gemini model unavailable — switched to Groq.", error_type="MODEL_404")
                 else:
-                    logger.warning(f"[LLM] Gemini: SERVER_ERROR ({err_msg})")
-                    logger.warning("[LLM] Gemini retry: SKIPPED")
-                    logger.warning("[LLM] Fallback: Groq")
-                    return self._call_groq_fallback(
-                        prompt,
-                        warning="Gemini service unavailable — switched to Groq.",
-                        error_type="SERVER_ERROR"
-                    )
+                    return self._call_groq_fallback(prompt, warning="Gemini service unavailable — switched to Groq.", error_type="SERVER_ERROR")
 
-        # Gemini unavailable
-        logger.info("[LLM] Gemini provider unavailable -> routing to Groq")
-        logger.info("[LLM] Fallback: Groq")
+        # Gemini unavailable (e.g. key missing)
+        logger.info("[LLM] Gemini provider unavailable -> routing to Groq fallback")
         return self._call_groq_fallback(prompt, warning="Gemini disabled/unavailable — switched to Groq.")
 
+    def _call_groq_primary(self, prompt: str) -> LLMResponse:
+        self.groq_call_count += 1
+        if not self.groq.is_available():
+            raise RuntimeError("LLM conversion failed. Gemini primary and Groq fallback both failed. Manual review required.")
+        try:
+            text, model_used = self.groq.generate(prompt)
+            return LLMResponse(
+                text=text,
+                provider_used="Groq",
+                model_used=model_used,
+                fallback_occurred=False
+            )
+        except Exception as ge:
+            logger.error(f"[LLM Router] Groq failed: {ge}")
+            raise RuntimeError("LLM conversion failed. Gemini primary and Groq fallback both failed. Manual review required.") from ge
+
     def _call_groq_fallback(self, prompt: str, warning: str, error_type: Optional[str] = None) -> LLMResponse:
+        self.groq_call_count += 1
         if self.groq.is_available():
             try:
                 text, model_used = self.groq.generate(prompt)
@@ -154,10 +112,10 @@ class LLMRouter:
                     error_type=error_type
                 )
             except Exception as ge:
-                logger.error(f"[LLM] Groq: FAILED ({ge})")
-                raise RuntimeError(f"Both Gemini and Groq providers failed. Groq error: {ge}") from ge
+                logger.error(f"[LLM Router] Groq fallback failed: {ge}")
+                raise RuntimeError("LLM conversion failed. Gemini primary and Groq fallback both failed. Manual review required.") from ge
         else:
-            raise RuntimeError(f"Both Gemini and Groq providers are unavailable. {warning}")
+            raise RuntimeError("LLM conversion failed. Gemini primary and Groq fallback both failed. Manual review required.")
 
 
 # Global router singleton

@@ -48,72 +48,86 @@ class GeminiProvider(BaseLLMProvider):
     name: str = "Gemini"
 
     def __init__(self, api_key: Optional[str] = None, client: Optional[Any] = None):
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.api_key = api_key
         self.client = client
-        self.preferred_models = [
-            "gemini-2.5-flash",
-            "gemini-1.5-flash",
-            "gemini-2.0-flash-exp",
-            "gemini-3.6-flash",
-            "gemini-pro"
-        ]
+        self.model = "gemini-2.5-flash"
+
+    def _fetch_api_key(self) -> Optional[str]:
+        if self.api_key:
+            return self.api_key
+        # Priority 1: Streamlit Cloud Secrets
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
+                    return str(st.secrets["GEMINI_API_KEY"]).strip()
+                if "gemini" in st.secrets and isinstance(st.secrets["gemini"], dict) and "api_key" in st.secrets["gemini"]:
+                    return str(st.secrets["gemini"]["api_key"]).strip()
+        except Exception:
+            pass
+
+        # Priority 2: Environment variable
+        key = os.environ.get("GEMINI_API_KEY")
+        if key and key.strip():
+            return key.strip()
+
+        # Priority 3: Local file .streamlit/secrets.toml
+        try:
+            toml_path = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+            if os.path.exists(toml_path):
+                with open(toml_path) as f:
+                    for line in f:
+                        line_s = line.strip()
+                        if line_s.startswith("GEMINI_API_KEY"):
+                            parts = line_s.split("=", 1)
+                            if len(parts) == 2:
+                                val = parts[1].strip().strip('"').strip("'")
+                                if val:
+                                    return val
+        except Exception:
+            pass
+
+        return None
 
     def _get_client(self) -> Any:
-        if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes"):
-            return None
-        if os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
+        if os.environ.get("DISABLE_GEMINI", "false").lower() in ("true", "1", "yes"):
             return None
         if self.client:
             return self.client
-        if not self.api_key:
+        api_key = self._fetch_api_key()
+        if not api_key:
             return None
         try:
             from google import genai
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = genai.Client(api_key=api_key)
             return self.client
         except Exception as e:
             logger.warning(f"[LLM] Failed to initialize Gemini client: {e}")
             return None
 
     def is_available(self) -> bool:
-        if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes"):
+        if os.environ.get("DISABLE_GEMINI", "false").lower() in ("true", "1", "yes"):
             return False
-        if os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
-            return False
-        return bool(self._get_client() or self.api_key)
+        return bool(self._get_client() or self._fetch_api_key())
 
     def generate(self, prompt: str) -> tuple[str, str]:
-        if os.environ.get("DISABLE_GEMINI", "true").lower() in ("true", "1", "yes") or os.environ.get("LLM_PRIMARY_PROVIDER", "groq").lower() == "groq":
-            raise GeminiDisabledError("Gemini is disabled. Groq is the only active LLM provider.")
+        if os.environ.get("DISABLE_GEMINI", "false").lower() in ("true", "1", "yes"):
+            raise GeminiDisabledError("Gemini is explicitly disabled via DISABLE_GEMINI environment variable.")
 
         client = self._get_client()
         if not client:
             raise RuntimeError("Gemini API key missing or client uninitialized.")
 
-        last_err = None
-        for model in self.preferred_models:
-            try:
-                res = client.models.generate_content(model=model, contents=prompt)
-                if res and hasattr(res, "text") and res.text:
-                    return res.text.strip(), model
-                elif res and hasattr(res, "content") and res.content:
-                    return str(res.content).strip(), model
-            except Exception as e:
-                last_err = e
-                err_msg = str(e).lower()
-                # If 429 quota or auth error, raise immediately to router for Groq fallback
-                if any(k in err_msg for k in ["429", "resource_exhausted", "quota", "rate_limit"]):
-                    raise e
-                if any(k in err_msg for k in ["401", "403", "invalid_api_key", "permission_denied"]):
-                    raise e
-                if any(k in err_msg for k in ["404", "not_found", "no longer available"]):
-                    logger.info(f"[LLM] Gemini Model {model} returned 404, cascading to next Gemini model...")
-                    continue
-                raise e
-
-        if last_err:
-            raise last_err
-        raise RuntimeError("Gemini content generation failed across all models.")
+        try:
+            res = client.models.generate_content(model=self.model, contents=prompt)
+            if res and hasattr(res, "text") and res.text:
+                return res.text.strip(), self.model
+            elif res and hasattr(res, "content") and res.content:
+                return str(res.content).strip(), self.model
+            raise RuntimeError(f"Gemini returned empty response for model {self.model}.")
+        except Exception as e:
+            logger.warning(f"[LLM] Gemini generation failed with model {self.model}: {e}")
+            raise e
 
 
 class GroqProvider(BaseLLMProvider):
