@@ -328,18 +328,23 @@ class RuleEngine:
         in_ds = from_m.group(1).split('.')[-1].upper()
 
         # Check for JOIN
-        join_m = re.search(r"(left|right|inner|full)?\s*join\s+([\w.]+)(?:\s+(?:as\s+)?\w+)?\s+on\s+(.*?)(?=\bwhere\b|\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
+        join_m = re.search(r"(left|right|inner|full)?\s*join\s+([\w.]+)(?:\s+(?:as\s+)?(\w+))?\s+on\s+(.*?)(?=\bwhere\b|\bgroup\s+by\b|\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
         join_ds = None
         join_type = "left_join"
         join_on = None
+        right_alias = None
+        join_key = None
+
         if join_m:
             jtype = (join_m.group(1) or "left").lower()
             join_type = f"{jtype}_join"
             join_ds = join_m.group(2).split('.')[-1].upper()
-            join_on_raw = join_m.group(3).strip()
+            right_alias = join_m.group(3) or join_ds
+            join_on_raw = join_m.group(4).strip() if join_m.group(4) else ""
             on_match = re.search(r"(?:\w+\.)?(\w+)\s*=\s*(?:\w+\.)?(\w+)", join_on_raw, re.I)
             if on_match:
-                join_on = f'"{on_match.group(1)}"'
+                join_key = on_match.group(1)
+                join_on = f'"{join_key}"'
 
         # 3. SELECT clause items & Alias Mapping
         select_m = re.search(r"\bselect\s+(.*?)\s+\bfrom\b", code_clean, re.I | re.DOTALL)
@@ -423,13 +428,33 @@ class RuleEngine:
         where_cond = None
         if where_m:
             w_raw = where_m.group(1).strip()
-            w_raw = re.sub(r'\b[a-zA-Z_]\w*\.', '', w_raw)
-            w_raw = re.sub(r'(\w+)\s+is\s+not\s+null\b', r'!is.na(\1)', w_raw, flags=re.I)
-            w_raw = re.sub(r'(\w+)\s+is\s+null\b', r'is.na(\1)', w_raw, flags=re.I)
-            w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
-            w_raw = re.sub(r'\band\b', ' & ', w_raw, flags=re.I)
-            w_raw = re.sub(r'\bor\b', ' | ', w_raw, flags=re.I)
-            where_cond = w_raw.strip()
+
+            # Check if right-side JOIN KEY is checked for NULL / IS NOT NULL in WHERE clause
+            if join_ds and join_type == "left_join" and right_alias and join_key:
+                is_not_null_pat = rf"\b({right_alias}|{join_ds})\.{join_key}\s+is\s+not\s+null\b"
+                is_null_pat = rf"\b({right_alias}|{join_ds})\.{join_key}\s+is\s+null\b"
+
+                if re.search(is_not_null_pat, w_raw, re.I):
+                    join_type = "inner_join"
+                    w_raw = re.sub(is_not_null_pat, "", w_raw, flags=re.I).strip()
+                    w_raw = re.sub(r"^\s*(and|or)\s+", "", w_raw, flags=re.I).strip()
+                    w_raw = re.sub(r"\s+(and|or)\s*$", "", w_raw, flags=re.I).strip()
+                    w_raw = re.sub(r"\s+(and|or)\s+(and|or)\s+", " \\1 ", w_raw, flags=re.I).strip()
+                elif re.search(is_null_pat, w_raw, re.I):
+                    join_type = "anti_join"
+                    w_raw = re.sub(is_null_pat, "", w_raw, flags=re.I).strip()
+                    w_raw = re.sub(r"^\s*(and|or)\s+", "", w_raw, flags=re.I).strip()
+                    w_raw = re.sub(r"\s+(and|or)\s*$", "", w_raw, flags=re.I).strip()
+                    w_raw = re.sub(r"\s+(and|or)\s+(and|or)\s+", " \\1 ", w_raw, flags=re.I).strip()
+
+            if w_raw:
+                w_raw = re.sub(r'\b[a-zA-Z_]\w*\.', '', w_raw)
+                w_raw = re.sub(r'(\w+)\s+is\s+not\s+null\b', r'!is.na(\1)', w_raw, flags=re.I)
+                w_raw = re.sub(r'(\w+)\s+is\s+null\b', r'is.na(\1)', w_raw, flags=re.I)
+                w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
+                w_raw = re.sub(r'\band\b', ' & ', w_raw, flags=re.I)
+                w_raw = re.sub(r'\bor\b', ' | ', w_raw, flags=re.I)
+                where_cond = w_raw.strip() if w_raw.strip() else None
 
         # 5. GROUP BY clause
         group_m = re.search(r"\bgroup\s+by\s+(.*?)(?=\bhaving\b|\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)

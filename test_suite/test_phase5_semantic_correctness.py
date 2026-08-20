@@ -569,6 +569,7 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
 
     def test_17_left_join_is_not_null_semantic_translation(self):
         """Test 17: Verify LEFT JOIN key casing and IS NOT NULL / IS NULL semantic translation."""
+        # 1. LEFT JOIN + b.USUBJID IS NOT NULL -> inner_join
         sas_join = """
         PROC SQL;
             CREATE TABLE AE_ADSL AS
@@ -583,17 +584,55 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
 
         self.assertIsNotNone(r_code)
         self.assertGreaterEqual(conf, 0.85)
-        self.assertIn('left_join(AE, by = "USUBJID")', r_code)
-        self.assertIn('filter(!is.na(USUBJID))', r_code)
+        self.assertIn('inner_join(AE, by = "USUBJID")', r_code)
+        self.assertNotIn('filter(!is.na(USUBJID))', r_code)
         self.assertNotIn('is not null', r_code.lower())
 
-        # Test IS NULL variant
+        # 2. LEFT JOIN + b.USUBJID IS NULL -> anti_join
         sas_null = sas_join.replace("IS NOT NULL", "IS NULL")
-        step_null = ProgramStep(step_index=1, step_type="PROC_STEP", name="AE_ADSL", source_code=sas_null, input_datasets=["ADSL", "AE"], output_datasets=["AE_ADSL"])
+        step_null = ProgramStep(step_index=1, step_type="PROC_STEP", name="NO_AE", source_code=sas_null, input_datasets=["ADSL", "AE"], output_datasets=["NO_AE"])
         r_code_null, conf_null, _ = self.rule_engine.translate_step(step_null)
 
         self.assertIsNotNone(r_code_null)
-        self.assertIn('filter(is.na(USUBJID))', r_code_null)
+        self.assertIn('anti_join(AE, by = "USUBJID")', r_code_null)
+
+        # 3. LEFT JOIN + non-key b.AEDECOD IS NOT NULL -> left_join + filter(!is.na(AEDECOD))
+        sas_nonkey = sas_join.replace("b.USUBJID IS NOT NULL", "b.AEDECOD IS NOT NULL")
+        step_nk = ProgramStep(step_index=1, step_type="PROC_STEP", name="AE_ADSL2", source_code=sas_nonkey, input_datasets=["ADSL", "AE"], output_datasets=["AE_ADSL2"])
+        r_code_nk, _, _ = self.rule_engine.translate_step(step_nk)
+
+        self.assertIn('left_join(AE, by = "USUBJID")', r_code_nk)
+        self.assertIn('filter(!is.na(AEDECOD))', r_code_nk)
+
+        # 4. LEFT JOIN + b.USUBJID IS NOT NULL + extra predicate (a.AGE >= 50)
+        sas_extra = sas_join.replace("WHERE b.USUBJID IS NOT NULL", "WHERE b.USUBJID IS NOT NULL AND a.AGE >= 50")
+        step_ex = ProgramStep(step_index=1, step_type="PROC_STEP", name="AE_ADSL_OLDER", source_code=sas_extra, input_datasets=["ADSL", "AE"], output_datasets=["AE_ADSL_OLDER"])
+        r_code_ex, _, _ = self.rule_engine.translate_step(step_ex)
+
+        self.assertIn('inner_join(AE, by = "USUBJID")', r_code_ex)
+        self.assertIn('filter(AGE >= 50)', r_code_ex)
+
+        # 5. LEFT JOIN + b.USUBJID IS NULL + extra predicate (a.AGE >= 50)
+        sas_ex_null = sas_join.replace("WHERE b.USUBJID IS NOT NULL", "WHERE b.USUBJID IS NULL AND a.AGE >= 50")
+        step_ex_null = ProgramStep(step_index=1, step_type="PROC_STEP", name="NO_AE_OLDER", source_code=sas_ex_null, input_datasets=["ADSL", "AE"], output_datasets=["NO_AE_OLDER"])
+        r_code_ex_null, _, _ = self.rule_engine.translate_step(step_ex_null)
+
+        self.assertIn('anti_join(AE, by = "USUBJID")', r_code_ex_null)
+        self.assertIn('filter(AGE >= 50)', r_code_ex_null)
+
+        # 6. Existing INNER JOIN regression
+        sas_ij = """
+        PROC SQL;
+            CREATE TABLE INNER_TEST AS
+            SELECT a.USUBJID
+            FROM ADSL AS a
+            INNER JOIN AE AS b ON a.USUBJID = b.USUBJID;
+        QUIT;
+        """
+        step_ij = ProgramStep(step_index=1, step_type="PROC_STEP", name="INNER_TEST", source_code=sas_ij, input_datasets=["ADSL", "AE"], output_datasets=["INNER_TEST"])
+        r_code_ij, _, _ = self.rule_engine.translate_step(step_ij)
+
+        self.assertIn('inner_join(AE, by = "USUBJID")', r_code_ij)
 
 
 if __name__ == "__main__":
