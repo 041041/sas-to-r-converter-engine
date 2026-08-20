@@ -44,6 +44,23 @@ class TestPhase6GroqOnlyRouting(unittest.TestCase):
         """TEST 2: Verify Groq is designated as the primary LLM provider."""
         self.assertEqual(self.router.primary_provider, "groq")
 
+    def test_02b_groq_model_is_llama_3_3_70b_versatile(self):
+        """TEST 2B: Verify GroqProvider default model is llama-3.3-70b-versatile and deprecated model is NOT used."""
+        groq_p = GroqProvider()
+        self.assertEqual(groq_p.model, "llama-3.3-70b-versatile")
+        
+        # Verify fallback list in GroqProvider.generate contains NO decommissioned llama-3.1 model
+        mock_client = MagicMock()
+        groq_p_mock = GroqProvider(api_key="mock", client=mock_client)
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock(message=MagicMock(content="R code"))]
+        mock_client.chat.completions.create.return_value = mock_resp
+        
+        groq_p_mock.generate("test prompt")
+        called_models = [call.kwargs.get("model") for call in mock_client.chat.completions.create.call_args_list]
+        for m in called_models:
+            self.assertNotEqual(m, "llama-3.1-70b-versatile", "Decommissioned model llama-3.1-70b-versatile MUST NOT be used!")
+
     def test_03_gemini_is_disabled(self):
         """TEST 3: Verify GeminiProvider reports is_available() == False."""
         gemini_p = GeminiProvider()
