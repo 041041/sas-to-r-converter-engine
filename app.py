@@ -1054,6 +1054,7 @@ if page == "🔄 SAS Converter":
           prog = st.progress(0, text=f"Starting conversion of {total_steps} step(s)...")
           status = st.empty()
           overall_start = time.time()
+          r_engine = RuleEngine(dialect=r_dialect)
   
           for i, step in enumerate(steps, 1):
               out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
@@ -1076,10 +1077,27 @@ if page == "🔄 SAS Converter":
                       with st.spinner(f"Converting {sname}..."):
                           try:
                               step_start = time.time()
-                              rc = call_llm_api(step, [], known_tables, r_dialect)
+                              prog_step = ProgramStep(
+                                  step_index=i,
+                                  step_type="PROC_STEP" if "proc " in step.lower() else "DATA_STEP",
+                                  name=sname,
+                                  source_code=step,
+                                  input_datasets=known_tables,
+                                  output_datasets=[sname]
+                              )
+                              r_rule_code, conf, method = r_engine.translate_step(prog_step)
+  
+                              if r_rule_code and conf >= 0.85:
+                                  rc = r_rule_code
+                              else:
+                                  rc = call_llm_api(step, [], known_tables, r_dialect)
+  
                               elapsed = time.time() - step_start
                               st.code(rc, language="r")
-                              all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
+                              if f"{sname} <-" in rc or f"{sname} =" in rc:
+                                  all_r.append(f"# --- {sname} ---\n{rc}\n")
+                              else:
+                                  all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                               if sname not in known_tables:
                                   known_tables.append(sname)
                               st.success(f"✅ {sname} converted — ⏱️ {format_elapsed(elapsed)}")

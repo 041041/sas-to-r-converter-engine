@@ -17,6 +17,8 @@ from llm_provider import GeminiProvider, GroqProvider, LLMResponse
 from llm_router import LLMRouter
 from semantic_conversion_engine import SemanticConversionEngine
 from semantic_validator import SemanticValidator
+from rule_engine import RuleEngine
+from sas_ast import ProgramStep
 
 
 class TestPhase7GeminiPrimaryGroqFallback(unittest.TestCase):
@@ -271,6 +273,64 @@ class TestPhase7GeminiPrimaryGroqFallback(unittest.TestCase):
                     with open(path, "r", encoding="utf-8", errors="ignore") as file:
                         content = file.read()
                         self.assertNotIn("safe_generate_groq_content", content, f"Legacy call in {path}")
+
+    def test_16_deterministic_first_step_conversion(self):
+        """TEST 16: Step conversion uses RuleEngine first for PROC SQL (0 Gemini/Groq calls for supported PROC SQL)."""
+        sas_sql = """
+        proc sql;
+            create table RESULT as
+            select cust_id,
+                   count(*) as total_orders,
+                   sum(amount) as total_spent,
+                   avg(amount) as avg_spent,
+                   max(amount) as max_order,
+                   min(amount) as min_order
+            from ORDERS
+            group by cust_id
+            having sum(amount) > 500
+            order by total_spent desc;
+        quit;
+        """
+        mock_gemini = MagicMock(spec=GeminiProvider)
+        mock_gemini.is_available.return_value = True
+        mock_groq = MagicMock(spec=GroqProvider)
+        mock_groq.is_available.return_value = True
+
+        router = LLMRouter(gemini_provider=mock_gemini, groq_provider=mock_groq)
+
+        # Test deterministic step translation flow
+        r_engine = RuleEngine(dialect="Modern R (tidyverse)")
+        prog_step = ProgramStep(
+            step_index=2,
+            step_type="PROC_STEP",
+            name="RESULT",
+            source_code=sas_sql,
+            input_datasets=["ORDERS"],
+            output_datasets=["RESULT"]
+        )
+
+        r_rule_code, conf, method = r_engine.translate_step(prog_step)
+
+        if r_rule_code and conf >= 0.85:
+            rc = r_rule_code
+        else:
+            rc = router.generate(sas_sql).text
+
+        # Verify 0 LLM calls for deterministic PROC SQL step
+        self.assertEqual(router.gemini_call_count, 0)
+        self.assertEqual(router.groq_call_count, 0)
+        mock_gemini.generate.assert_not_called()
+        mock_groq.generate.assert_not_called()
+
+        # Verify expected tidyverse pipeline keywords
+        self.assertIn("group_by(cust_id)", rc)
+        self.assertIn("total_orders = n()", rc)
+        self.assertIn("total_spent = sum(amount, na.rm = TRUE)", rc)
+        self.assertIn("avg_spent = mean(amount, na.rm = TRUE)", rc)
+        self.assertIn("max_order = max(amount, na.rm = TRUE)", rc)
+        self.assertIn("min_order = min(amount, na.rm = TRUE)", rc)
+        self.assertIn("filter(total_spent > 500)", rc)
+        self.assertIn("arrange(desc(total_spent))", rc)
 
 
 if __name__ == "__main__":
