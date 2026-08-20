@@ -567,6 +567,34 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
         self.assertEqual(method_cards, "Rule_DatalinesToDataFrame")
         self.assertIn("ORDERS <- data.frame(", r_code_cards)
 
+    def test_17_left_join_is_not_null_semantic_translation(self):
+        """Test 17: Verify LEFT JOIN key casing and IS NOT NULL / IS NULL semantic translation."""
+        sas_join = """
+        PROC SQL;
+            CREATE TABLE AE_ADSL AS
+            SELECT a.USUBJID, a.SEX, a.AGE, b.AEDECOD
+            FROM ADSL AS a
+            LEFT JOIN AE AS b ON a.USUBJID = b.USUBJID
+            WHERE b.USUBJID IS NOT NULL;
+        QUIT;
+        """
+        step = ProgramStep(step_index=1, step_type="PROC_STEP", name="AE_ADSL", source_code=sas_join, input_datasets=["ADSL", "AE"], output_datasets=["AE_ADSL"])
+        r_code, conf, method = self.rule_engine.translate_step(step)
+
+        self.assertIsNotNone(r_code)
+        self.assertGreaterEqual(conf, 0.85)
+        self.assertIn('left_join(AE, by = "USUBJID")', r_code)
+        self.assertIn('filter(!is.na(USUBJID))', r_code)
+        self.assertNotIn('is not null', r_code.lower())
+
+        # Test IS NULL variant
+        sas_null = sas_join.replace("IS NOT NULL", "IS NULL")
+        step_null = ProgramStep(step_index=1, step_type="PROC_STEP", name="AE_ADSL", source_code=sas_null, input_datasets=["ADSL", "AE"], output_datasets=["AE_ADSL"])
+        r_code_null, conf_null, _ = self.rule_engine.translate_step(step_null)
+
+        self.assertIsNotNone(r_code_null)
+        self.assertIn('filter(is.na(USUBJID))', r_code_null)
+
 
 if __name__ == "__main__":
     unittest.main()

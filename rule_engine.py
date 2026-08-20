@@ -339,7 +339,7 @@ class RuleEngine:
             join_on_raw = join_m.group(3).strip()
             on_match = re.search(r"(?:\w+\.)?(\w+)\s*=\s*(?:\w+\.)?(\w+)", join_on_raw, re.I)
             if on_match:
-                join_on = f'"{on_match.group(1).lower()}"'
+                join_on = f'"{on_match.group(1)}"'
 
         # 3. SELECT clause items & Alias Mapping
         select_m = re.search(r"\bselect\s+(.*?)\s+\bfrom\b", code_clean, re.I | re.DOTALL)
@@ -423,8 +423,12 @@ class RuleEngine:
         where_cond = None
         if where_m:
             w_raw = where_m.group(1).strip()
-            w_raw = re.sub(r'^\w+\.', '', w_raw)
+            w_raw = re.sub(r'\b[a-zA-Z_]\w*\.', '', w_raw)
+            w_raw = re.sub(r'(\w+)\s+is\s+not\s+null\b', r'!is.na(\1)', w_raw, flags=re.I)
+            w_raw = re.sub(r'(\w+)\s+is\s+null\b', r'is.na(\1)', w_raw, flags=re.I)
             w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
+            w_raw = re.sub(r'\band\b', ' & ', w_raw, flags=re.I)
+            w_raw = re.sub(r'\bor\b', ' | ', w_raw, flags=re.I)
             where_cond = w_raw.strip()
 
         # 5. GROUP BY clause
