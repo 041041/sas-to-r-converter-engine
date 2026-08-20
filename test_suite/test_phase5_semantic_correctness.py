@@ -535,6 +535,38 @@ class TestPhase5SemanticCorrectness(unittest.TestCase):
         self.assertTrue(val_res.is_equivalent)
         self.assertEqual(val_res.confidence_score, 100.0)
 
+    def test_16_datalines_cards_rule_engine_translation(self):
+        """Test 16: Verify DATALINES and CARDS steps translate deterministically with 1.0 confidence."""
+        sas_datalines = """
+        DATA ORDERS;
+            INPUT cust_id $ amount;
+            DATALINES;
+        C001 100
+        C001 250
+        C002 700
+        C003 100
+        ;
+        RUN;
+        """
+        step = ProgramStep(step_index=1, step_type="DATA_STEP", name="ORDERS", source_code=sas_datalines, input_datasets=[], output_datasets=["ORDERS"])
+        r_code, conf, method = self.rule_engine.translate_step(step)
+
+        self.assertIsNotNone(r_code)
+        self.assertEqual(conf, 1.0)
+        self.assertEqual(method, "Rule_DatalinesToDataFrame")
+        self.assertIn("ORDERS <- data.frame(", r_code)
+        self.assertIn('cust_id = c("C001", "C001", "C002", "C003")', r_code)
+        self.assertIn('amount = c(100, 250, 700, 100)', r_code)
+
+        # Test CARDS keyword variant
+        sas_cards = sas_datalines.replace("DATALINES", "CARDS")
+        step_cards = ProgramStep(step_index=1, step_type="DATA_STEP", name="ORDERS", source_code=sas_cards, input_datasets=[], output_datasets=["ORDERS"])
+        r_code_cards, conf_cards, method_cards = self.rule_engine.translate_step(step_cards)
+
+        self.assertEqual(conf_cards, 1.0)
+        self.assertEqual(method_cards, "Rule_DatalinesToDataFrame")
+        self.assertIn("ORDERS <- data.frame(", r_code_cards)
+
 
 if __name__ == "__main__":
     unittest.main()

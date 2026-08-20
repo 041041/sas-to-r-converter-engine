@@ -43,12 +43,17 @@ class RuleEngine:
             r_code = self._translate_proc_freq(code)
             if r_code: return r_code, 0.90, "Rule_ProcFreq"
             
-        # 4. Standard DATA Step Filtering Rule
+        # 4. DATALINES / CARDS Inline Data Rule
+        if re.search(r"datalines|cards", code, re.I):
+            r_code = self._translate_datalines(code)
+            if r_code: return r_code, 1.0, "Rule_DatalinesToDataFrame"
+
+        # 5. Standard DATA Step Filtering Rule
         if code.lower().startswith("data"):
             r_code = self._translate_data_step_filter(code)
             if r_code: return r_code, 0.85, "Rule_DataStepFilter"
 
-        # 5. PROC SQL Rule (Aggregations, Group By, Having, Order By, Joins)
+        # 6. PROC SQL Rule (Aggregations, Group By, Having, Order By, Joins)
         if re.search(r"proc\s+sql", code, re.I):
             r_code = self._translate_proc_sql(code)
             if r_code: return r_code, 0.95, "Rule_ProcSQL"
@@ -146,6 +151,73 @@ class RuleEngine:
                 f"df <- df[df$COUNT > 0, ]\n"
                 f"df"
             )
+
+    def _translate_datalines(self, code: str) -> Optional[str]:
+        """Translates DATA step with DATALINES or CARDS into a deterministic R data.frame(...) creation."""
+        if not re.search(r"datalines|cards", code, re.I):
+            return None
+
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        input_m = re.search(r"input\s+([^;]+);", code, re.I)
+        lines_m = re.search(r"(?:datalines|cards)\s*;\s*\n(.*?)\n\s*;", code, re.DOTALL | re.I)
+
+        if not out_m or not input_m or not lines_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+
+        # Parse INPUT column names and data types ($ indicates character column)
+        raw_input_tokens = input_m.group(1).strip().split()
+        cols = []
+        col_types = []  # "char" or "num"
+
+        for token in raw_input_tokens:
+            if token == "$":
+                if col_types:
+                    col_types[-1] = "char"
+            elif not token.startswith(":") and not token.startswith("$"):
+                cols.append(token.lstrip("$"))
+                col_types.append("num")
+
+        if not cols:
+            return None
+
+        # Parse inline data rows
+        raw_rows = [l.strip() for l in lines_m.group(1).split('\n') if l.strip()]
+        col_data = {c: [] for c in cols}
+
+        for row in raw_rows:
+            if row.startswith(";") or row.lower() == "run;":
+                continue
+            tokens = row.split()
+            for idx, col in enumerate(cols):
+                if idx < len(tokens):
+                    val = tokens[idx]
+                    if col_types[idx] == "char":
+                        clean_val = val.strip('"\'')
+                        col_data[col].append(f'"{clean_val}"')
+                    else:
+                        if val == "." or val.upper() == "NA":
+                            col_data[col].append("NA")
+                        else:
+                            col_data[col].append(val)
+
+        if not any(col_data.values()):
+            return None
+
+        # Construct R data.frame(...)
+        col_assigns = []
+        for c in cols:
+            vals_str = ", ".join(col_data[c])
+            col_assigns.append(f"{c} = c({vals_str})")
+
+        r_code = (
+            f"{out_ds} <- data.frame(\n  " +
+            ",\n  ".join(col_assigns) +
+            ",\n  stringsAsFactors = FALSE\n)\n" +
+            f"{out_ds}"
+        )
+        return r_code
 
     def _translate_data_step_filter(self, code: str) -> Optional[str]:
         out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
