@@ -45,20 +45,24 @@ class TestPhase6GroqOnlyRouting(unittest.TestCase):
         self.assertEqual(self.router.primary_provider, "groq")
 
     def test_02b_groq_model_is_llama_3_3_70b_versatile(self):
-        """TEST 2B: Verify GroqProvider default model is llama-3.3-70b-versatile and deprecated model is NOT used."""
+        """TEST 2B: Verify GroqProvider default model is llama-3.3-70b-versatile and deprecated models are NOT used."""
         groq_p = GroqProvider()
         self.assertEqual(groq_p.model, "llama-3.3-70b-versatile")
 
-        # Test GROQ_MODEL environment variable resolution
+        # Test GROQ_MODEL environment variable overrides (specdec and 3.1)
+        with patch.dict(os.environ, {"GROQ_MODEL": "llama-3.3-70b-specdec"}):
+            groq_specdec = GroqProvider()
+            self.assertEqual(groq_specdec.model, "llama-3.3-70b-versatile", "Specdec model env override must resolve to 3.3-versatile!")
+
         with patch.dict(os.environ, {"GROQ_MODEL": "llama-3.1-70b-versatile"}):
             groq_env_override = GroqProvider()
-            self.assertEqual(groq_env_override.model, "llama-3.3-70b-versatile", "Legacy model env override must be coerced to 3.3!")
+            self.assertEqual(groq_env_override.model, "llama-3.3-70b-versatile", "Legacy 3.1 model env override must resolve to 3.3-versatile!")
 
         with patch.dict(os.environ, {}, clear=True):
             groq_unset = GroqProvider()
             self.assertEqual(groq_unset.model, "llama-3.3-70b-versatile")
         
-        # Verify fallback list in GroqProvider.generate contains NO decommissioned llama-3.1 model
+        # Verify GroqProvider.generate calls ONLY llama-3.3-70b-versatile
         mock_client = MagicMock()
         groq_p_mock = GroqProvider(api_key="mock", client=mock_client)
         mock_resp = MagicMock()
@@ -67,7 +71,9 @@ class TestPhase6GroqOnlyRouting(unittest.TestCase):
         
         groq_p_mock.generate("test prompt")
         called_models = [call.kwargs.get("model") for call in mock_client.chat.completions.create.call_args_list]
+        self.assertEqual(called_models, ["llama-3.3-70b-versatile"])
         for m in called_models:
+            self.assertNotEqual(m, "llama-3.3-70b-specdec", "Decommissioned model llama-3.3-70b-specdec MUST NOT be used!")
             self.assertNotEqual(m, "llama-3.1-70b-versatile", "Decommissioned model llama-3.1-70b-versatile MUST NOT be used!")
 
     def test_03_gemini_is_disabled(self):

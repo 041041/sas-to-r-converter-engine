@@ -123,7 +123,7 @@ class GroqProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, client: Optional[Any] = None):
         self.api_key = api_key
         raw_model = model or os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile"
-        if any(k in raw_model.lower() for k in ["3.1", "llama3-70b", "llama-3.1-70b"]):
+        if raw_model != "llama-3.3-70b-versatile":
             raw_model = "llama-3.3-70b-versatile"
         self.model = raw_model
         self.client = client
@@ -187,28 +187,18 @@ class GroqProvider(BaseLLMProvider):
         if not client:
             raise RuntimeError("Groq API key missing or client uninitialized.")
 
-        models_to_try = [self.model, "llama-3.3-70b-versatile", "llama-3.3-70b-specdec", "llama3-70b-8192"]
-        seen = set()
-        models_to_try = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
+        # Hard enforcement: production model MUST ONLY be llama-3.3-70b-versatile
+        target_model = "llama-3.3-70b-versatile"
+        try:
+            resp = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=target_model,
+                temperature=0.1
+            )
+            if resp and resp.choices and resp.choices[0].message.content:
+                return resp.choices[0].message.content.strip(), target_model
+        except Exception as e:
+            logger.error(f"[LLM] Groq generation failed with model {target_model}: {e}")
+            raise e
 
-        last_err = None
-        for m in models_to_try:
-            try:
-                resp = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=m,
-                    temperature=0.1
-                )
-                if resp and resp.choices and resp.choices[0].message.content:
-                    return resp.choices[0].message.content.strip(), m
-            except Exception as e:
-                last_err = e
-                err_msg = str(e).lower()
-                if "404" in err_msg or "model_not_found" in err_msg:
-                    logger.info(f"[LLM] Groq model {m} not found, cascading to next Groq model...")
-                    continue
-                raise e
-
-        if last_err:
-            raise last_err
-        raise RuntimeError("Groq content generation failed across all models.")
+        raise RuntimeError(f"Failed to generate content with Groq model {target_model}.")
