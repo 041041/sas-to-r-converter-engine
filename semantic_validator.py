@@ -22,6 +22,109 @@ class SemanticValidationResult:
     missing_r_ops: list[str]
     is_passthrough_false_positive: bool
     review_notes: list[str] = field(default_factory=list)
+    missing_columns: list[str] = field(default_factory=list)
+    expected_columns: list[str] = field(default_factory=list)
+
+
+def extract_expected_sas_columns(sas_code: str) -> list[str]:
+    """Extracts expected output variable names from SAS PROC SQL or DATA steps."""
+    sas_clean = re.sub(r'/\*.*?\*/', '', sas_code, flags=re.DOTALL)
+    sas_clean = re.sub(r'--.*?\n', '\n', sas_clean)
+    
+    expected_cols = []
+    
+    # 1. PROC SQL SELECT clause handling
+    select_match = re.search(r'\bselect\b(.*?)\bfrom\b', sas_clean, re.I | re.DOTALL)
+    if select_match:
+        select_clause = select_match.group(1)
+        
+        items = []
+        current = []
+        depth = 0
+        for char in select_clause:
+            if char in '([':
+                depth += 1
+                current.append(char)
+            elif char in ')]':
+                depth -= 1
+                current.append(char)
+            elif char == ',' and depth == 0:
+                items.append(''.join(current).strip())
+                current = []
+            else:
+                current.append(char)
+        if current:
+            items.append(''.join(current).strip())
+            
+        sql_keywords = {
+            "SELECT", "DISTINCT", "FROM", "WHERE", "GROUP", "HAVING", "ORDER",
+            "BY", "CASE", "WHEN", "THEN", "ELSE", "END", "AS", "CALCULATED",
+            "COUNT", "SUM", "AVG", "MEAN", "MIN", "MAX", "INT", "COALESCE",
+            "UPPER", "LOWER", "ON", "LEFT", "RIGHT", "JOIN", "INNER", "OUTER"
+        }
+        
+        for item in items:
+            item_clean = item.strip()
+            if not item_clean:
+                continue
+            
+            as_match = re.search(r'\bAS\s+([A-Za-z_][A-Za-z0-9_]*)\s*$', item_clean, re.I)
+            if as_match:
+                alias = as_match.group(1).upper()
+                if alias not in sql_keywords and alias not in expected_cols:
+                    expected_cols.append(alias)
+                continue
+                
+            implicit_as = re.search(r'(?:END|\))\s+([A-Za-z_][A-Za-z0-9_]*)\s*$', item_clean, re.I)
+            if implicit_as:
+                alias = implicit_as.group(1).upper()
+                if alias not in sql_keywords and alias not in expected_cols:
+                    expected_cols.append(alias)
+                continue
+
+            col_match = re.search(r'^(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)$', item_clean, re.I)
+            if col_match:
+                col_name = col_match.group(1).upper()
+                if col_name not in sql_keywords and col_name not in expected_cols:
+                    expected_cols.append(col_name)
+                continue
+
+    # 2. DATA STEP assignment handling
+    else:
+        assigns = re.findall(r'(?:^\s*|\bif\s+.*?\bthen\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)', sas_clean, re.I | re.M)
+        data_keywords = {"IF", "THEN", "ELSE", "DO", "END", "LENGTH", "RETAIN", "KEEP", "DROP", "SET", "MERGE", "BY", "FORMAT", "LABEL"}
+        for var in assigns:
+            var_u = var.upper()
+            if var_u not in data_keywords and var_u not in expected_cols:
+                expected_cols.append(var_u)
+
+    return expected_cols
+
+
+def validate_semantic_completeness(sas_code: str, r_code: str) -> tuple[bool, list[str], list[str], list[str]]:
+    """
+    Validates that all expected output columns/variables from the SAS step are represented in the generated R code.
+    Returns: (is_complete, expected_cols, present_cols, missing_cols)
+    """
+    expected_cols = extract_expected_sas_columns(sas_code)
+    if not expected_cols:
+        return True, [], [], []
+
+    r_lines = [l.split('#')[0] for l in r_code.split('\n')]
+    r_code_clean = '\n'.join(r_lines)
+
+    present_cols = []
+    missing_cols = []
+
+    for col in expected_cols:
+        pattern = r'\b' + re.escape(col) + r'\b'
+        if re.search(pattern, r_code_clean, re.I):
+            present_cols.append(col)
+        else:
+            missing_cols.append(col)
+
+    is_complete = (len(missing_cols) == 0)
+    return is_complete, expected_cols, present_cols, missing_cols
 
 
 class PassthroughDetector:
@@ -173,16 +276,21 @@ class SemanticValidator:
         if is_passthrough_fp:
             notes.append("CRITICAL: Detected false-positive passthrough assignment (SEMANTIC_CONVERSION_INCOMPLETE).")
 
+        # 8. Variable/Column Semantic Completeness Gate
+        col_complete, exp_cols, pres_cols, miss_cols = validate_semantic_completeness(sas_code, r_code)
+        if not col_complete:
+            notes.append(f"SEMANTIC COMPLETENESS FAIL: Missing required output columns/variables: {', '.join(miss_cols)}")
+
         # Expression-Level Completeness Score
         total_req = len(req_items)
         total_match = len(matched_items)
 
         if total_req == 0:
-            completeness_score = 100.0
-            is_equivalent = True
+            completeness_score = 100.0 if col_complete else 50.0
+            is_equivalent = col_complete
         else:
-            completeness_score = round((total_match / total_req) * 100.0, 1)
-            is_equivalent = (len(missing_ops) == 0) and (not is_passthrough_fp) and (completeness_score >= 95.0)
+            completeness_score = round((total_match / total_req) * 100.0, 1) if col_complete else min(round((total_match / total_req) * 100.0, 1), 50.0)
+            is_equivalent = (len(missing_ops) == 0) and (not is_passthrough_fp) and col_complete and (completeness_score >= 95.0)
 
         # Cap confidence score strictly by completeness
         confidence_score = completeness_score if is_equivalent else min(completeness_score, 80.0)
@@ -194,7 +302,9 @@ class SemanticValidator:
             detected_r_ops=matched_items,
             missing_r_ops=missing_ops,
             is_passthrough_false_positive=is_passthrough_fp,
-            review_notes=notes
+            review_notes=notes,
+            missing_columns=miss_cols,
+            expected_columns=exp_cols
         )
 
 

@@ -236,11 +236,8 @@ def clean_r_code(text):
         if r_blocks:
             text = "\n".join(r_blocks)
         else:
-            blocks = re.findall(r"```(?:python|sas|text)?\n?(.*?)\n?```", text, re.DOTALL)
-            if blocks:
-                text = "\n".join(blocks)
-            else:
-                text = text.replace(backticks, "")
+            text = re.sub(r"```(?:sas|python|text)?\n?", "", text)
+            text = text.replace(backticks, "")
 
     lines = text.split("\n")
     out = []
@@ -322,80 +319,108 @@ def clean_r_code(text):
     if not cleaned.strip().endswith("df"): cleaned += "\ndf"
     return cleaned
 
-def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
-    """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
-    env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
-    func_hints = inject_function_hints(step)
-    if not df_cols:
-        input_context = "Convert this step. You have access to the tables listed below."
-    else:
-        input_context = f"A dataframe named 'df' with columns: {df_cols}"
-
-    if dialect == "Modern R (tidyverse)":
-        rule_set = (
-            f"1. Use modern R (tidyverse). Use the pipe operator (%>%) for chaining.\n"
-            f"2. IF SAS uses DATALINES: ONLY create the data.frame using `data.frame(...)`. STOP immediately.\n"
-            f"3. IF SAS reads an existing table: start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
-            f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate().\n"
-            f"5. FOR PROC SORT: Use `arrange()`. ONLY use `desc()` if SAS code explicitly has `DESCENDING` keyword before the variable. If no DESCENDING keyword — always use ascending order.\n"            f"6. FIRST. LOGIC: Use `group_by(var) %>% slice(1) %>% ungroup()`. IMPORTANT: Do NOT add an extra arrange() or sort inside this step; it must rely on the previous step's order.\n"
-            f"7. MACRO LOGIC: If input is a %macro, convert macro variables (&var) to column names in a mutate() call.\n"
-            f"8. FOR PROC FREQ: Use `df %>% count(var1, var2) %>% rename(COUNT = n)` for cross-tabs. "
-            f"NEVER use pivot_wider or spread. Output MUST stay in long format with one row per combination. "
-            f"Final columns must be: var1, var2, COUNT.\n"
-        )
-    else:
-        rule_set = (
-            f"1. Use ONLY pure Base R. DO NOT use tidyverse, tidyr, or pipes (%>%).\n"
-            f"2. For aggregate(), ALWAYS use the formula interface.\n"
-            f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
-            f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
-            f"5. FOR PROC SORT: Use `df = df[order(...), ]`. ONLY use minus sign for descending if SAS code explicitly has `DESCENDING` keyword before the variable. If no DESCENDING keyword — always use ascending order.\n"            f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
-            f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
-            f"8. FOR PROC FREQ: Use EXACTLY this pattern: `df = as.data.frame(table(df$var1, df$var2))` then `names(df) = c('var1', 'var2', 'COUNT')` then `df = df[df$COUNT > 0, ]`. "
-            f"NEVER add an order() or sort() before table(). "
-            f"NEVER use any other approach. Output MUST stay in long format with one row per combination. "
-            f"Final columns must be: var1, var2, COUNT.\n"
-            f"9. FOR PROC SQL GROUP BY + HAVING: Use this EXACT two-step pattern:\n"
-            f"   Step 1 - WHERE filter: `df = df[df$col == 'value', ]`\n"
-            f"   Step 2 - aggregate separately for each output column:\n"
-            f"   `df_count = aggregate(order_id ~ cust_id, data=df, FUN=length)`\n"
-            f"   `df_sum = aggregate(amount ~ cust_id, data=df, FUN=sum)`\n"
-            f"   `df = merge(df_count, df_sum, by='cust_id')`\n"
-            f"   `names(df) = c('cust_id', 'total_orders', 'total_spent')`\n"
-            f"   Step 3 - HAVING filter: `df = df[df$total_spent > 600, ]`\n"
-            f"   NEVER use cbind inside aggregate. NEVER use matrix columns.\n"
-            f"10. FOR PROC TRANSPOSE: Use EXACTLY this pattern:\n"
-            f"    `df = reshape(TABLENAME, varying=c('q1','q2','q3','q4'), v.names='revenue', timevar='quarter', times=c('q1','q2','q3','q4'), direction='long')`\n"
-            f"    `df = df[order(match(df$region, TABLENAME$region), match(df$quarter, c('q1','q2','q3','q4'))), ]`\n"
-            f"    `df = df[, c('region', 'quarter', 'revenue')]`\n"
-            f"    `row.names(df) = NULL`\n"
-            f"    NEVER use stack(), NEVER use melt(). NEVER convert quarter to factor.\n"
-        )
-
-    prompt = (
-        f"TASK: Convert this SAS step to R code.\n"
-        f"INPUT CONTEXT: {input_context}{env_info}{func_hints}\n"
-        f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
-        f"STRICT RULES:\n{rule_set}"
-        f"FINAL RULE: No explanations. Just executable R code. Write the code EXACTLY ONCE. DO NOT loop or repeat lines.\n\n"
-        f"SAS STEP:\n{step}"
-    )
-
 from llm_router import get_llm_router
 
-def call_llm_api(prompt, uploaded_csvs, known_tables, r_dialect="Modern R (tidyverse)"):
+def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyverse)", r_dialect=None):
     """
-    Calls LLMRouter (Groq primary) to generate R code and enforces R output contract validation.
+    Calls Gemini primary with Groq fallback. Constructs prompt with system rules and enforces R output contract validation.
     """
+    target_dialect = r_dialect if r_dialect is not None else (dialect if dialect else "Modern R (tidyverse)")
+    env_tables = env_names if env_names is not None else []
+    cols_list = df_cols if df_cols is not None else []
+
+    # If step is already a complete prompt string (starts with TASK:), use as is
+    if isinstance(step, str) and step.startswith("TASK: Convert this SAS step to R code."):
+        full_prompt = step
+    else:
+        env_info = f"\nAvailable tables in R environment: {', '.join(env_tables)}" if env_tables else ""
+        func_hints = inject_function_hints(str(step))
+        if not cols_list:
+            input_context = "Convert this step. You have access to the tables listed below."
+        else:
+            input_context = f"A dataframe named 'df' with columns: {cols_list}"
+
+        if target_dialect == "Modern R (tidyverse)":
+            rule_set = (
+                f"1. Use modern R (tidyverse). Use the pipe operator (%>%) for chaining.\n"
+                f"2. IF SAS uses DATALINES: ONLY create the data.frame using `data.frame(...)`. STOP immediately.\n"
+                f"3. IF SAS reads an existing table: start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
+                f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate().\n"
+                f"5. FOR PROC SORT: Use `arrange()`. ONLY use `desc()` if SAS code explicitly has `DESCENDING` keyword before the variable. If no DESCENDING keyword — always use ascending order.\n"
+                f"6. FIRST. LOGIC: Use `group_by(var) %>% slice(1) %>% ungroup()`. IMPORTANT: Do NOT add an extra arrange() or sort inside this step; it must rely on the previous step's order.\n"
+                f"7. MACRO LOGIC: If input is a %macro, convert macro variables (&var) to column names in a mutate() call.\n"
+                f"8. FOR PROC FREQ: Use `df %>% count(var1, var2) %>% rename(COUNT = n)` for cross-tabs. "
+                f"NEVER use pivot_wider or spread. Output MUST stay in long format with one row per combination. "
+                f"Final columns must be: var1, var2, COUNT.\n"
+            )
+        else:
+            rule_set = (
+                f"1. Use ONLY pure Base R. DO NOT use tidyverse, tidyr, or pipes (%>%).\n"
+                f"2. For aggregate(), ALWAYS use the formula interface.\n"
+                f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
+                f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
+                f"5. FOR PROC SORT: Use `df = df[order(...), ]`. ONLY use minus sign for descending if SAS code explicitly has `DESCENDING` keyword before the variable. If no DESCENDING keyword — always use ascending order.\n"
+                f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
+                f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
+                f"8. FOR PROC FREQ: Use EXACTLY this pattern: `df = as.data.frame(table(df$var1, df$var2))` then `names(df) = c('var1', 'var2', 'COUNT')` then `df = df[df$COUNT > 0, ]`. "
+                f"NEVER add an order() or sort() before table(). "
+                f"NEVER use any other approach. Output MUST stay in long format with one row per combination. "
+                f"Final columns must be: var1, var2, COUNT.\n"
+                f"9. FOR PROC SQL GROUP BY + HAVING: Use this EXACT two-step pattern:\n"
+                f"   Step 1 - WHERE filter: `df = df[df$col == 'value', ]`\n"
+                f"   Step 2 - aggregate separately for each output column:\n"
+                f"   `df_count = aggregate(order_id ~ cust_id, data=df, FUN=length)`\n"
+                f"   `df_sum = aggregate(amount ~ cust_id, data=df, FUN=sum)`\n"
+                f"   `df = merge(df_count, df_sum, by='cust_id')`\n"
+                f"   `names(df) = c('cust_id', 'total_orders', 'total_spent')`\n"
+                f"   Step 3 - HAVING filter: `df = df[df$total_spent > 600, ]`\n"
+                f"   NEVER use cbind inside aggregate. NEVER use matrix columns.\n"
+                f"10. FOR PROC TRANSPOSE: Use EXACTLY this pattern:\n"
+                f"    `df = reshape(TABLENAME, varying=c('q1','q2','q3','q4'), v.names='revenue', timevar='quarter', times=c('q1','q2','q3','q4'), direction='long')`\n"
+                f"    `df = df[order(match(df$region, TABLENAME$region), match(df$quarter, c('q1','q2','q3','q4'))), ]`\n"
+                f"    `df = df[, c('region', 'quarter', 'revenue')]`\n"
+                f"    `row.names(df) = NULL`\n"
+                f"    NEVER use stack(), NEVER use melt(). NEVER convert quarter to factor.\n"
+            )
+
+        full_prompt = (
+            f"TASK: Convert this SAS step to R code.\n"
+            f"INPUT CONTEXT: {input_context}{env_info}{func_hints}\n"
+            f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
+            f"STRICT RULES:\n{rule_set}"
+            f"FINAL RULE: No explanations. Just executable R code. Write the code EXACTLY ONCE. DO NOT loop or repeat lines.\n\n"
+            f"SAS STEP:\n{step}"
+        )
+
     router = get_llm_router()
     try:
-        resp = router.generate(prompt)
+        resp = router.generate(full_prompt)
         if resp.fallback_occurred and resp.warning_msg:
             import streamlit as st
             st.caption(f"⚠️ {resp.warning_msg}")
         cleaned = clean_r_code(resp.text)
         if not is_valid_r_code(cleaned):
             raise ValueError("LLM response failed R output contract validation (contained SAS syntax or prose commentary).")
+        
+        from semantic_validator import validate_semantic_completeness
+        is_comp, exp_c, pres_c, miss_c = validate_semantic_completeness(str(step), cleaned)
+        if not is_comp:
+            correction_prompt = (
+                f"{full_prompt}\n\n"
+                f"CRITICAL CORRECTION REQUIRED: The previous R output missed the following required output variables/columns: {', '.join(miss_c)}.\n"
+                f"You MUST include all of these output variables in the R output pipeline (inside mutate(), summarise(), or select()). Re-generate complete R code now."
+            )
+            try:
+                resp_retry = router.generate(correction_prompt)
+                cleaned_retry = clean_r_code(resp_retry.text)
+                if is_valid_r_code(cleaned_retry):
+                    is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), cleaned_retry)
+                    if is_comp_retry:
+                        return cleaned_retry
+            except Exception:
+                pass
+            raise ValueError(f"LLM response failed semantic completeness validation. Missing output variables: {', '.join(miss_c)}")
+
         return cleaned
     except Exception as e:
         raise RuntimeError(f"LLM conversion failed: {e}")
@@ -1098,8 +1123,16 @@ if page == "🔄 SAS Converter":
                                   output_datasets=[sname]
                               )
                               r_rule_code, conf, method = r_engine.translate_step(prog_step)
-  
+
+                              rule_valid = False
                               if r_rule_code and conf >= 0.85:
+                                  if is_valid_r_code(r_rule_code):
+                                      from semantic_validator import validate_semantic_completeness
+                                      is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
+                                      if is_c:
+                                          rule_valid = True
+
+                              if rule_valid:
                                   rc = r_rule_code
                               else:
                                   rc = call_llm_api(step, [], known_tables, r_dialect)
