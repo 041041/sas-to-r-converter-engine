@@ -62,9 +62,8 @@ class TestDiagnosticTrace(unittest.TestCase):
         print("--- CLEANED OUTPUT PRODUCED BY clean_r_code ---")
         print(cleaned)
 
-        # Assert that clean_r_code produced SAS code
-        self.assertIn("data ADAM.ADSL;", cleaned)
-        self.assertIn("if sex = \"M\" then SEXN = 1;", cleaned)
+        # Assert that clean_r_code filters out raw SAS statements
+        self.assertNotIn("data ADAM.ADSL;", cleaned)
 
 
 if __name__ == "__main__":

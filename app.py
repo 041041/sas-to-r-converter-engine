@@ -240,11 +240,19 @@ def clean_r_code(text):
     lines = text.split("\n")
     out = []
     forbidden = ["explanation:", "sas code:", "run;", "quit;", "data.frame()", "library("]
+    prose_starters = ["here is", "here's", "below is", "the following", "converted r", "this r code", "note:", "explanation:"]
 
     for line in lines:
         clean_line = line.strip()
         if not clean_line or clean_line.startswith(('#', backticks)): continue
         if any(x in clean_line.lower() for x in forbidden if x != "data.frame()"): continue
+        if any(clean_line.lower().startswith(ps) for ps in prose_starters): continue
+
+        # Filter out conversational prose lines that lack any R syntax indicators
+        r_indicators = ["<-", "%>%", "=", "c(", "list(", "df", "[", "]", "function("]
+        if not any(ind in clean_line for ind in r_indicators) and not clean_line.endswith(")") and not clean_line.endswith("%"):
+            continue
+
         if "(" in clean_line and "<-" in clean_line:
             clean_line = clean_line.replace("<-", "=")
 
