@@ -229,30 +229,40 @@ def clean_r_code(text):
     if not text:
         return "df"
 
-    # Safely strip all markdown code fences regardless of tag
+    # Safely strip all markdown code fences, prioritizing R code blocks
     backticks = "\x60\x60\x60"
     if backticks in text:
-        pattern = backticks + r"(?:r|python|R|sas|text)?\n?(.*?)\n?" + backticks
-        blocks = re.findall(pattern, text, re.DOTALL)
-        if blocks:
-            text = "\n".join(blocks)
+        r_blocks = re.findall(r"```(?:r|R)\n?(.*?)\n?```", text, re.DOTALL)
+        if r_blocks:
+            text = "\n".join(r_blocks)
         else:
-            text = text.replace(backticks, "")
+            blocks = re.findall(r"```(?:python|sas|text)?\n?(.*?)\n?```", text, re.DOTALL)
+            if blocks:
+                text = "\n".join(blocks)
+            else:
+                text = text.replace(backticks, "")
 
     lines = text.split("\n")
     out = []
     forbidden = ["explanation:", "sas code:", "run;", "quit;", "data.frame()", "library("]
-    prose_starters = ["here is", "here's", "below is", "the following", "converted r", "this r code", "note:", "explanation:"]
+    prose_starters = [
+        "here is", "here's", "below is", "the following", "converted r",
+        "this r code", "this code", "in sas", "note:", "explanation:", "to convert", "for this"
+    ]
 
     for line in lines:
         clean_line = line.strip()
         if not clean_line or clean_line.startswith(('#', backticks)): continue
-        if any(x in clean_line.lower() for x in forbidden if x != "data.frame()"): continue
-        if any(clean_line.lower().startswith(ps) for ps in prose_starters): continue
+        
+        clean_lower = clean_line.lower()
+        if any(x in clean_lower for x in forbidden if x != "data.frame()"): continue
+        if any(clean_lower.startswith(ps) for ps in prose_starters): continue
+        if "proc " in clean_lower or "in sas" in clean_lower or "translates to" in clean_lower: continue
 
-        # Filter out conversational prose lines that lack any R syntax indicators
-        r_indicators = ["<-", "%>%", "=", "c(", "list(", "df", "[", "]", "function("]
-        if not any(ind in clean_line for ind in r_indicators) and not clean_line.endswith(")") and not clean_line.endswith("%"):
+        # Filter out conversational prose lines that lack strong R syntax indicators
+        r_indicators = ["<-", "%>%", "c(", "list(", "[", "]", "function(", "filter(", "mutate(", "select(", "arrange(", "group_by(", "summarise(", "case_when("]
+        has_r_op = any(ind in clean_line for ind in r_indicators) or "=" in clean_line or clean_line.endswith(")") or clean_line.endswith("%") or clean_line.isupper() or clean_line == "df"
+        if not has_r_op:
             continue
 
         if "(" in clean_line and "<-" in clean_line:
