@@ -227,6 +227,8 @@ class RuleEngine:
         out_ds = out_m.group(1).split('.')[-1].upper()
         in_ds = set_m.group(1).split('.')[-1].upper()
         code_clean = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+        stmts = [re.sub(r'\s+', ' ', s.strip()) for s in code_clean.split(';') if s.strip()]
+        code_clean = '\n'.join(s + ';' for s in stmts)
 
         # 1. Collect all subsetting IF / WHERE statements (ending with semicolon, without THEN)
         filters = []
@@ -354,13 +356,70 @@ class RuleEngine:
 
         # FAIL-CLOSED Safety Gate: Reject queries with unhandled CASE statements
         total_cases = len(re.findall(r'\bcase\b', select_str, re.I))
-        supported_cases = len(re.findall(r'sum\s*\(\s*case\s+when', select_str, re.I))
+        sum_cases = len(re.findall(r'sum\s*\(\s*case\s+when', select_str, re.I))
+
+        keywords = ("else", "end", "from", "where", "group", "by", "having", "order", "as", "select", "then", "when", "case")
+
+        nested_case_pat = r'\bcase\s+when\s+((?:(?!\bcase\b|\bwhen\b|\bthen\b).)+)\s+then\s+case\s+when\s+((?:(?!\bcase\b|\bwhen\b|\bthen\b).)+)\s+then\s+((?:(?!\bcase\b|\bwhen\b|\belse\b).)+)\s+else\s+((?:(?!\bcase\b|\bwhen\b|\bend\b).)+)\s+end\s+else\s+((?:(?!\bcase\b|\bwhen\b|\bend\b).)+)\s+end(?:\s+as)?\s+([a-zA-Z_]\w*)'
+        nested_case_matches = []
+        select_str_for_scalar = select_str
+        for m in re.finditer(nested_case_pat, select_str, re.I | re.DOTALL):
+            if m.group(6).strip().lower() not in keywords:
+                nested_case_matches.append(m)
+                select_str_for_scalar = select_str_for_scalar.replace(m.group(0), '')
+
+        scalar_case_pat = r'\bcase\s+when\s+((?:(?!\bcase\b|\bwhen\b|\bthen\b).)+)\s+then\s+((?:(?!\bcase\b|\bwhen\b|\belse\b).)+)\s+else\s+((?:(?!\bcase\b|\bwhen\b|\bend\b).)+)\s+end(?:\s+as)?\s+([a-zA-Z_]\w*)'
+        scalar_case_matches = []
+        for m in re.finditer(scalar_case_pat, select_str_for_scalar, re.I | re.DOTALL):
+            if m.group(4).strip().lower() not in keywords:
+                scalar_case_matches.append(m)
+
+        scalar_cases = len(scalar_case_matches)
+        nested_cases = len(nested_case_matches)
+
+        supported_cases = sum_cases + scalar_cases + (nested_cases * 2)
         if total_cases > supported_cases:
             return None
 
         # Parse select items & build alias_map (e.g. "sum(amount)" -> "total_spent")
         summarise_items = []
+        mutate_items = []
         alias_map = {}  # { "sum(amount)": "total_spent", ... }
+
+        for match in scalar_case_matches:
+            cond_raw = match.group(1).strip()
+            then_val = match.group(2).strip()
+            else_val = match.group(3).strip()
+            alias_name = match.group(4).strip()
+
+            cond_clean = re.sub(r'\b[a-zA-Z_]\w*\.', '', cond_raw)
+            cond_clean = re.sub(r'(?<![<>!=])=(?!=)', '==', cond_clean)
+            cond_clean = re.sub(r'\s*\band\b\s*', ' & ', cond_clean, flags=re.I)
+            cond_clean = re.sub(r'\s*\bor\b\s*', ' | ', cond_clean, flags=re.I)
+            cond_clean = cond_clean.strip()
+
+            mutate_items.append(f"{alias_name} = dplyr::case_when(\n      {cond_clean} ~ {then_val},\n      TRUE ~ {else_val}\n    )")
+
+        for match in nested_case_matches:
+            cond1_raw = match.group(1).strip()
+            cond2_raw = match.group(2).strip()
+            val2 = match.group(3).strip()
+            val3 = match.group(4).strip()
+            val4 = match.group(5).strip()
+            alias_name = match.group(6).strip()
+
+            cond1_clean = re.sub(r'\b[a-zA-Z_]\w*\.', '', cond1_raw)
+            cond1_clean = re.sub(r'(?<![<>!=])=(?!=)', '==', cond1_clean)
+            cond1_clean = re.sub(r'\s*\band\b\s*', ' & ', cond1_clean, flags=re.I)
+            cond1_clean = re.sub(r'\s*\bor\b\s*', ' | ', cond1_clean, flags=re.I).strip()
+
+            cond2_clean = re.sub(r'\b[a-zA-Z_]\w*\.', '', cond2_raw)
+            cond2_clean = re.sub(r'(?<![<>!=])=(?!=)', '==', cond2_clean)
+            cond2_clean = re.sub(r'\s*\band\b\s*', ' & ', cond2_clean, flags=re.I)
+            cond2_clean = re.sub(r'\s*\bor\b\s*', ' | ', cond2_clean, flags=re.I).strip()
+
+            mutate_items.append(f"{alias_name} = dplyr::case_when(\n      {cond1_clean} & {cond2_clean} ~ {val2},\n      {cond1_clean} ~ {val3},\n      TRUE ~ {val4}\n    )")
+
         select_parts = [p.strip() for p in select_str.split(',') if p.strip()]
 
         for item in select_parts:
@@ -382,15 +441,26 @@ class RuleEngine:
 
             expr_clean = re.sub(r'\s+', '', expr.lower())
 
-            # Check conditional sum e.g. sum(case when serious = "Y" then 1 else 0 end)
-            case_sum_m = re.search(r'sum\s*\(\s*case\s+when\s+([\w.]+)\s*=\s*["\']?(\w+)["\']?\s+then\s+1\s+else\s+0\s+end\s*\)', expr, re.I)
+            # Check conditional sum e.g. sum(case when serious = "Y" then 1 else 0 end) or sum(case when AGE >= 65 and SEX = "F" then 1 else 0 end)
+            case_sum_m = re.search(r'sum\s*\(\s*case\s+when\s+(.*?)\s+then\s+1\s+else\s+0\s+end\s*\)', expr, re.I | re.DOTALL)
+            cdist_m = re.search(r'count\s*\(\s*distinct\s+([\w.]+)\s*\)', expr, re.I | re.DOTALL)
+
             if case_sum_m:
-                col_name = case_sum_m.group(1).split('.')[-1]
-                val_name = case_sum_m.group(2)
-                a_name = alias or f"{col_name}_count"
-                summarise_items.append(f"{a_name} = sum({col_name} == \"{val_name}\", na.rm = TRUE)")
+                cond_raw = case_sum_m.group(1).strip()
+                cond_clean = re.sub(r'\b[a-zA-Z_]\w*\.', '', cond_raw)
+                cond_clean = re.sub(r'(?<![<>!=])=(?!=)', '==', cond_clean)
+                cond_clean = re.sub(r'\s*\band\b\s*', ' & ', cond_clean, flags=re.I)
+                cond_clean = re.sub(r'\s*\bor\b\s*', ' | ', cond_clean, flags=re.I)
+                cond_clean = cond_clean.strip()
+                a_name = alias or "sum_case_val"
+                summarise_items.append(f"{a_name} = sum(if_else({cond_clean}, 1, 0), na.rm = TRUE)")
                 alias_map[expr_clean] = a_name
-                alias_map[f"sum({col_name}==\"{val_name}\")"] = a_name
+            elif cdist_m:
+                c_var = cdist_m.group(1).split('.')[-1]
+                a_name = alias or f"count_distinct_{c_var}"
+                summarise_items.append(f"{a_name} = dplyr::n_distinct({c_var})")
+                alias_map[expr_clean] = a_name
+                alias_map[f"count(distinct{c_var.lower()})"] = a_name
             # Check aggregate functions
             elif re.search(r'count\s*\(\s*\*\s*\)', expr, re.I):
                 a_name = alias or "total_orders"
@@ -469,6 +539,49 @@ class RuleEngine:
             g_raw = group_m.group(1).strip()
             group_vars = [re.sub(r'^\w+\.', '', v.strip()) for v in g_raw.split(',') if v.strip()]
 
+        # Collect non-aggregate explicit select columns if no aggregate summarise_items and no group_vars
+        select_cols = []
+        if not summarise_items and not group_vars:
+            select_str_plain = select_str
+            for m in scalar_case_matches:
+                select_str_plain = select_str_plain.replace(m.group(0), '')
+            for m in nested_case_matches:
+                select_str_plain = select_str_plain.replace(m.group(0), '')
+
+            plain_items = [p.strip() for p in select_str_plain.split(',') if p.strip()]
+            for item in plain_items:
+                item_clean = item.strip()
+                if item_clean == '*' or item_clean.lower().endswith('.*'):
+                    select_cols = []
+                    break
+                if re.search(r'\b(count|sum|avg|mean|max|min|case)\b', item_clean, re.I):
+                    continue
+                alias_m = re.search(r'^(.*?)\s+as\s+(\w+)$', item_clean, re.I) or re.search(r'^(.*?)\s+(\w+)$', item_clean, re.I)
+                if alias_m:
+                    col_expr = alias_m.group(1).strip()
+                    alias_var = alias_m.group(2).strip()
+                    if alias_var.lower() not in ("from", "where", "group", "by", "having", "order", "as"):
+                        col_name = re.sub(r'^\w+\.', '', col_expr)
+                        if col_name != alias_var:
+                            select_cols.append(f"{alias_var} = {col_name}")
+                        else:
+                            select_cols.append(col_name)
+                    else:
+                        col_name = re.sub(r'^\w+\.', '', item_clean)
+                        select_cols.append(col_name)
+                else:
+                    col_name = re.sub(r'^\w+\.', '', item_clean)
+                    select_cols.append(col_name)
+
+            for m in scalar_case_matches:
+                alias_name = m.group(4).strip()
+                if alias_name not in select_cols:
+                    select_cols.append(alias_name)
+            for m in nested_case_matches:
+                alias_name = m.group(6).strip()
+                if alias_name not in select_cols:
+                    select_cols.append(alias_name)
+
         # 6. HAVING clause with Aggregate Alias Resolution
         having_m = re.search(r"\bhaving\s+(.*?)(?=\border\s+by\b|;|\bquit\b)", code_clean, re.I | re.DOTALL)
         having_cond = None
@@ -524,6 +637,14 @@ class RuleEngine:
 
         if where_cond:
             lines.append(f"  dplyr::filter({where_cond})")
+
+        if mutate_items:
+            m_str = ",\n    ".join(mutate_items)
+            lines.append(f"  dplyr::mutate(\n    {m_str}\n  )")
+
+        if select_cols:
+            s_cols_str = ", ".join(select_cols)
+            lines.append(f"  dplyr::select({s_cols_str})")
 
         if group_vars:
             g_str = ", ".join(group_vars)

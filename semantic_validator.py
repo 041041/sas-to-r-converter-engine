@@ -91,12 +91,31 @@ def extract_expected_sas_columns(sas_code: str) -> list[str]:
 
     # 2. DATA STEP assignment handling
     else:
-        assigns = re.findall(r'(?:^\s*|\bif\s+.*?\bthen\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)', sas_clean, re.I | re.M)
-        data_keywords = {"IF", "THEN", "ELSE", "DO", "END", "LENGTH", "RETAIN", "KEEP", "DROP", "SET", "MERGE", "BY", "FORMAT", "LABEL"}
-        for var in assigns:
-            var_u = var.upper()
-            if var_u not in data_keywords and var_u not in expected_cols:
-                expected_cols.append(var_u)
+        statements = sas_clean.split(";")
+        data_keywords = {
+            "IF", "THEN", "ELSE", "DO", "END", "LENGTH", "RETAIN", "KEEP",
+            "DROP", "SET", "MERGE", "BY", "FORMAT", "LABEL", "DATA", "RUN",
+            "QUIT", "INPUT", "OUTPUT", "WHERE"
+        }
+        for stmt in statements:
+            stmt_clean = stmt.strip()
+            if not stmt_clean:
+                continue
+
+            target_str = stmt_clean
+            then_match = re.search(r'\bthen\b(.*)$', stmt_clean, re.I | re.DOTALL)
+            if then_match:
+                target_str = then_match.group(1).strip()
+            else:
+                else_match = re.search(r'^\s*else\b(.*)$', stmt_clean, re.I | re.DOTALL)
+                if else_match:
+                    target_str = else_match.group(1).strip()
+
+            assign_match = re.match(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)(.*)$', target_str, re.DOTALL)
+            if assign_match:
+                var_name = assign_match.group(1).upper()
+                if var_name not in data_keywords and var_name not in expected_cols:
+                    expected_cols.append(var_name)
 
     return expected_cols
 

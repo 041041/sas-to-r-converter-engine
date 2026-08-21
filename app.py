@@ -201,6 +201,18 @@ def format_elapsed(seconds):
     secs = seconds % 60
     return f"{mins}m {secs:.1f}s"
 
+class ConversionFailedError(RuntimeError):
+    """Exception raised when step conversion fails, carrying candidate code and validation metadata."""
+    def __init__(self, message, candidate_code=None, contract_pass=False, syntax_pass=False, semantic_pass=False, missing_cols=None, gemini_failed=False, groq_failed=False):
+        super().__init__(message)
+        self.candidate_code = candidate_code
+        self.contract_pass = contract_pass
+        self.syntax_pass = syntax_pass
+        self.semantic_pass = semantic_pass
+        self.missing_cols = missing_cols or []
+        self.gemini_failed = gemini_failed
+        self.groq_failed = groq_failed
+
 def is_valid_r_code(text: str) -> bool:
     """Validates that text represents actual R code, rejecting SAS statements and conversational prose."""
     if not text or not text.strip():
@@ -352,7 +364,7 @@ def clean_r_code(text):
 
 from llm_router import get_llm_router
 
-def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyverse)", r_dialect=None):
+def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyverse)", r_dialect=None, initial_candidate=None):
     """
     Calls Gemini primary with Groq fallback. Constructs prompt with system rules and enforces R output contract validation.
     """
@@ -424,17 +436,40 @@ def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyvers
         )
 
     router = get_llm_router()
+    candidate = initial_candidate
+    contract_ok = is_valid_r_code(candidate) if candidate else False
+    syntax_ok = validate_r_syntax(candidate) if (candidate and contract_ok) else False
+    comp_ok = False
+    miss_c = []
+    if candidate and syntax_ok:
+        from semantic_validator import validate_semantic_completeness
+        comp_ok, _, _, miss_c = validate_semantic_completeness(str(step), candidate)
+
+    gemini_fail = False
+    groq_fail = False
+
     try:
-        resp = router.generate(full_prompt)
-        if resp.fallback_occurred and resp.warning_msg:
-            import streamlit as st
-            st.caption(f"⚠️ {resp.warning_msg}")
-        cleaned = clean_r_code(resp.text)
-        if not is_valid_r_code(cleaned):
-            raise ValueError("LLM response failed R output contract validation (contained SAS syntax or prose commentary).")
-        
-        # 1. R Syntax Validation Gate
-        if not validate_r_syntax(cleaned):
+        try:
+            resp = router.generate(full_prompt)
+            if resp.fallback_occurred:
+                gemini_fail = True
+                if resp.warning_msg:
+                    import streamlit as st
+                    st.caption(f"⚠️ {resp.warning_msg}")
+            llm_cand = clean_r_code(resp.text)
+            if is_valid_r_code(llm_cand):
+                candidate = llm_cand
+        except Exception as llm_err:
+            gemini_fail = True
+            groq_fail = True
+            raise ConversionFailedError(f"LLM generation failed: {llm_err}", candidate_code=candidate, contract_pass=contract_ok, syntax_pass=syntax_ok, semantic_pass=comp_ok, missing_cols=miss_c, gemini_failed=True, groq_failed=True)
+
+        contract_ok = is_valid_r_code(candidate)
+        if not contract_ok:
+            raise ConversionFailedError("LLM response failed R output contract validation (contained SAS syntax or prose commentary).", candidate_code=candidate, contract_pass=False, syntax_pass=False, semantic_pass=False, gemini_failed=gemini_fail, groq_failed=groq_fail)
+
+        syntax_ok = validate_r_syntax(candidate)
+        if not syntax_ok:
             syntax_correction_prompt = (
                 f"{full_prompt}\n\n"
                 f"CRITICAL CORRECTION REQUIRED:\n"
@@ -445,19 +480,22 @@ def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyvers
             )
             try:
                 resp_retry = router.generate(syntax_correction_prompt)
-                cleaned_retry = clean_r_code(resp_retry.text)
-                if is_valid_r_code(cleaned_retry) and validate_r_syntax(cleaned_retry):
-                    from semantic_validator import validate_semantic_completeness
-                    is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), cleaned_retry)
-                    if is_comp_retry:
-                        return cleaned_retry
+                candidate_retry = clean_r_code(resp_retry.text)
+                if is_valid_r_code(candidate_retry):
+                    candidate = candidate_retry
+                    contract_ok = True
+                    if validate_r_syntax(candidate_retry):
+                        syntax_ok = True
+                        from semantic_validator import validate_semantic_completeness
+                        is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), candidate_retry)
+                        if is_comp_retry:
+                            return candidate_retry
             except Exception:
                 pass
-            raise ValueError("LLM response failed R syntax validation (parse error).")
+            raise ConversionFailedError("LLM response failed R syntax validation (parse error).", candidate_code=candidate, contract_pass=contract_ok, syntax_pass=syntax_ok, semantic_pass=False, gemini_failed=gemini_fail, groq_failed=groq_fail)
 
-        # 2. Semantic Completeness Gate
         from semantic_validator import validate_semantic_completeness
-        is_comp, exp_c, pres_c, miss_c = validate_semantic_completeness(str(step), cleaned)
+        is_comp, exp_c, pres_c, miss_c = validate_semantic_completeness(str(step), candidate)
         if not is_comp:
             correction_prompt = (
                 f"{full_prompt}\n\n"
@@ -466,18 +504,26 @@ def call_llm_api(step, df_cols=None, env_names=None, dialect="Modern R (tidyvers
             )
             try:
                 resp_retry = router.generate(correction_prompt)
-                cleaned_retry = clean_r_code(resp_retry.text)
-                if is_valid_r_code(cleaned_retry) and validate_r_syntax(cleaned_retry):
-                    is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), cleaned_retry)
-                    if is_comp_retry:
-                        return cleaned_retry
+                candidate_retry = clean_r_code(resp_retry.text)
+                if is_valid_r_code(candidate_retry):
+                    candidate = candidate_retry
+                    contract_ok = True
+                    if validate_r_syntax(candidate_retry):
+                        syntax_ok = True
+                        is_comp_retry, _, _, miss_c_retry = validate_semantic_completeness(str(step), candidate_retry)
+                        if is_comp_retry:
+                            return candidate_retry
+                        else:
+                            miss_c = miss_c_retry
             except Exception:
                 pass
-            raise ValueError(f"LLM response failed semantic completeness validation. Missing output variables: {', '.join(miss_c)}")
+            raise ConversionFailedError(f"LLM response failed semantic completeness validation. Missing output variables: {', '.join(miss_c)}", candidate_code=candidate, contract_pass=contract_ok, syntax_pass=syntax_ok, semantic_pass=False, missing_cols=miss_c, gemini_failed=gemini_fail, groq_failed=groq_fail)
 
-        return cleaned
+        return candidate
+    except ConversionFailedError:
+        raise
     except Exception as e:
-        raise RuntimeError(f"LLM conversion failed: {e}")
+        raise ConversionFailedError(f"LLM conversion failed: {e}", candidate_code=candidate, contract_pass=contract_ok, syntax_pass=syntax_ok, semantic_pass=False, missing_cols=miss_c, gemini_failed=gemini_fail, groq_failed=groq_fail)
 
 def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
@@ -672,7 +718,21 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
 
                 # Time the LLM call
                 llm_start = time.time()
-                r_code = call_llm_api(step, active_df.columns.tolist(), list(work_library.keys()), dialect)
+                from rule_engine import RuleEngine
+                prog_step = ProgramStep(step_index=i+1, step_type="PROC_STEP" if "proc " in step.lower() else "DATA_STEP", name=target_name, source_code=step, input_datasets=list(work_library.keys()), output_datasets=[target_name])
+                r_rule_code, conf, method = RuleEngine(dialect=dialect).translate_step(prog_step)
+                rule_valid = False
+                if r_rule_code and conf >= 0.85:
+                    if is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code):
+                        from semantic_validator import validate_semantic_completeness
+                        is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
+                        if is_c:
+                            rule_valid = True
+
+                if rule_valid:
+                    r_code = r_rule_code
+                else:
+                    r_code = call_llm_api(step, active_df.columns.tolist(), list(work_library.keys()), dialect, initial_candidate=r_rule_code)
                 res_entry["elapsed_llm"] = time.time() - llm_start
                 res_entry["r_code"] = r_code
 
@@ -1189,7 +1249,7 @@ if page == "🔄 SAS Converter":
                               if rule_valid:
                                   rc = r_rule_code
                               else:
-                                  rc = call_llm_api(step, [], known_tables, r_dialect)
+                                  rc = call_llm_api(step, [], known_tables, r_dialect, initial_candidate=r_rule_code)
   
                               elapsed = time.time() - step_start
                               st.code(rc, language="r")
@@ -1201,7 +1261,29 @@ if page == "🔄 SAS Converter":
                                   known_tables.append(sname)
                               st.success(f"✅ {sname} converted — ⏱️ {format_elapsed(elapsed)}")
                           except Exception as e:
-                              st.error(f"❌ {e}")
+                               cand_code = getattr(e, "candidate_code", None) or (r_rule_code if 'r_rule_code' in locals() else None)
+                               contract_ok = getattr(e, "contract_pass", False)
+                               syntax_ok = getattr(e, "syntax_pass", False)
+                               semantic_ok = getattr(e, "semantic_pass", False)
+                               missing_cols = getattr(e, "missing_cols", [])
+                               gemini_failed = getattr(e, "gemini_failed", False)
+                               groq_failed = getattr(e, "groq_failed", False)
+
+                               st.warning(f"⚠️ **{sname} — Conversion requires review**")
+                               if cand_code:
+                                   st.markdown("**Generated R Code (Candidate):**")
+                                   st.code(cand_code, language="r")
+                                   st.warning("⚠️ Candidate code was NOT accepted as final validated output. Manual review required.")
+
+                               with st.expander("📊 Validation Status Breakdown", expanded=True):
+                                   st.markdown(f"- **R Contract**: {'✅ PASS' if contract_ok else '❌ FAIL'}")
+                                   st.markdown(f"- **R Syntax**: {'✅ PASS' if syntax_ok else '❌ FAIL'}")
+                                   st.markdown(f"- **Semantic Completeness**: {'✅ PASS' if semantic_ok else '❌ FAIL'}")
+                                   st.markdown("- **Execution**: ❌ NOT RUN (Candidate code failed validation)")
+                                   if missing_cols:
+                                       st.markdown(f"**Missing columns**: `{', '.join(missing_cols)}`")
+                                   if gemini_failed or groq_failed:
+                                       st.markdown(f"**Gemini**: {'FAILED' if gemini_failed else 'PASSED'}  \n**Groq**: {'FAILED' if groq_failed else 'PASSED'}")
   
           prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
           status.empty()
