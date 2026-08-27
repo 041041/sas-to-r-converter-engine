@@ -2208,7 +2208,7 @@ def parse_sas_source(sas_text: str) -> dict:
         token_pat = re.compile(r'(%macro\b|%mend(?:\s+\w+)?\s*;)', re.IGNORECASE)
 
         while pos < n:
-            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code_text[pos:], re.IGNORECASE)
+            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code_text[pos:], re.IGNORECASE | re.DOTALL)
             if not m:
                 break
             macro_name = m.group(1).strip().upper()

@@ -331,7 +331,7 @@ class SASMacroProcessor:
         pos = 0
         n = len(code)
         while pos < n:
-            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code[pos:], re.IGNORECASE)
+            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code[pos:], re.IGNORECASE | re.DOTALL)
             if not m:
                 break
 
@@ -407,7 +407,7 @@ class SASMacroProcessor:
         last_idx = 0
 
         while pos < n:
-            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code[pos:], re.IGNORECASE)
+            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code[pos:], re.IGNORECASE | re.DOTALL)
             if not m:
                 result.append(code[last_idx:])
                 break
@@ -979,14 +979,19 @@ class SASMacroProcessor:
         if '&&' in condition:
             return None
 
-        # Reject any %macro_function calls except allowed builtins if simple
-        macro_func_calls = re.findall(r'%(\w+)', condition)
+        active_vars = {**self.let_vars, **local_vars}
+        cond = self._substitute_let_vars(condition, active_vars)
+
+        # Evaluate bounded macro functions (%length, %substr, %scan, %index, %sysfunc)
+        eval_fn = self._evaluate_bounded_macro_functions(cond, active_vars)
+        if eval_fn is not None:
+            cond = eval_fn
+
+        # Reject any remaining %macro_function calls except allowed builtins if simple
+        macro_func_calls = re.findall(r'%(\w+)', cond)
         for m_fn in macro_func_calls:
             if m_fn.upper() not in ('SYMEXIST', 'UPCASE', 'LOWCASE'):
                 return None
-
-        # Substitute variables
-        cond = self._substitute_let_vars(condition, {**self.let_vars, **local_vars})
 
         # Reject if unresolved macro variables remain
         if re.search(r'&\w+', cond):

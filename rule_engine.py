@@ -1051,13 +1051,11 @@ class RuleEngine:
                 keep_str = ", ".join(keep_vars)
                 schema_step = f"  dplyr::select({keep_str})"
             elif m_rename:
-                pairs = m_rename.group(1).split()
-                ren_pairs = []
-                for p in pairs:
-                    if "=" not in p:
-                        return None
-                    old_v, new_v = p.split("=")
-                    ren_pairs.append(f"{new_v.strip().upper()} = {old_v.strip().upper()}")
+                raw_rename = m_rename.group(1).strip()
+                pairs = re.findall(r"(\w+)\s*=\s*(\w+)", raw_rename)
+                if not pairs:
+                    return None
+                ren_pairs = [f"{new_v.upper()} = {old_v.upper()}" for old_v, new_v in pairs]
                 rename_str = ", ".join(ren_pairs)
                 rename_step = f"  dplyr::rename({rename_str})"
             elif m_if_not_missing:

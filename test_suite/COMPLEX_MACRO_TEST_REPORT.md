@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-27 21:01:00
+**Test Timestamp**: 2026-08-27 21:12:09
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -519,7 +519,7 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 7_Complex_Clinical_Macro`
 - **Input Datasets**: `DM`
-- **Output Datasets**: `ADAE, AE_JOINED, ADSL_POP`
+- **Output Datasets**: `ADSL_POP, ADAE, AE_JOINED`
 - **Libraries / Data Sources**:
   - `SDTM` $\rightarrow$ `lib_sdtm`
   - `ADAM` $\rightarrow$ `lib_adam`
