@@ -1098,8 +1098,17 @@ if page == "🔄 SAS Converter":
         parsed_source = parse_sas_source(sas_script)
         _macro_defs = parsed_source["macro_definitions"]
 
+        # Read uploaded macro files if present
+        extra_files = []
+        if macro_files:
+            for mf in macro_files:
+                try:
+                    extra_files.append(mf.getvalue().decode('utf-8', errors='ignore'))
+                except Exception:
+                    pass
+
         # Expand macros in SAS code
-        sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra)
+        sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra_files)
 
         for w in mac_warnings:
             st.warning(w)
