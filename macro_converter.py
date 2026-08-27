@@ -62,6 +62,8 @@ def _sas_cond_to_r(cond: str, params: Optional[list] = None) -> str:
         return f"!is.na({col_ref})" if negated else f"is.na({col_ref})"
 
     r = re.sub(r'\b(not\s+)?missing\s*\(\s*([a-zA-Z_&]\w*)\s*\)', _sub_missing, r, flags=re.IGNORECASE)
+    r = re.sub(r'%?upcase\s*\(\s*([a-zA-Z_&]\w*)\s*\)', r'toupper(\1)', r, flags=re.IGNORECASE)
+    r = re.sub(r'%?lowcase\s*\(\s*([a-zA-Z_&]\w*)\s*\)', r'tolower(\1)', r, flags=re.IGNORECASE)
 
     # macro variable references  &var  →  var
     r = re.sub(r'&(\w+)', lambda m: f".data[[{m.group(1).lower()}]]" if m.group(1).lower() in param_set else m.group(1).lower(), r)
@@ -2093,9 +2095,11 @@ def classify_macro(
 
     has_do_loop = bool(re.search(r'%do\b', body, re.IGNORECASE))
     has_macro_control_flow = bool(re.search(r'%\b(?:if|then|else|do)\b', body, re.IGNORECASE))
+    has_proc_sql = bool(re.search(r'\bproc\s+sql\b', body, re.IGNORECASE))
+    has_merge_in = bool(re.search(r'\bmerge\b.*?\bin\s*=', body, re.IGNORECASE | re.DOTALL))
     is_path_a_dyn_ds = _has_multi_amp_data_stmt(body)
 
-    single_res = 'PATH_A' if (has_macro_control_flow or has_do_loop or re.search(r'&&\w+', body) or is_path_a_dyn_ds) else None
+    single_res = 'PATH_A' if (has_macro_control_flow or has_do_loop or re.search(r'&&\w+', body) or is_path_a_dyn_ds or has_proc_sql or has_merge_in) else None
 
     if single_res is None:
         # 3. Check for Path B (Reusable Parameterized Utility Macro)

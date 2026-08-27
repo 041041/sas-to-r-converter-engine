@@ -171,8 +171,14 @@ class RuleEngine:
         5. sum(A, B) -> ifelse(is.na(A) & is.na(B), NA_real_, dplyr::coalesce(A, 0) + dplyr::coalesce(B, 0))
         6. mean(A, B) -> ifelse(is.na(A) & is.na(B), NA_real_, (dplyr::coalesce(A, 0) + dplyr::coalesce(B, 0)) / (!is.na(A) + !is.na(B)))
         """
+        # 0. %upcase(var) / upcase(var) -> toupper(var), %lowcase(var) / lowcase(var) -> tolower(var)
+        expr = re.sub(r'%?upcase\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'toupper(\1)', expr, flags=re.I)
+        expr = re.sub(r'%?lowcase\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'tolower(\1)', expr, flags=re.I)
+
         # 1. missing(var) -> is.na(var)
+        expr = re.sub(r'\bnot\s+missing\s*\(\s*(\w+)\s*\)', r'!is.na(\1)', expr, flags=re.I)
         expr = re.sub(r'\bmissing\s*\(\s*(\w+)\s*\)', r'is.na(\1)', expr, flags=re.I)
+        expr = re.sub(r'\bnot\s+is\.na\s*\(\s*(\w+)\s*\)', r'!is.na(\1)', expr, flags=re.I)
         
         # 2. coalesce(var1, var2) -> dplyr::coalesce(var1, var2)
         expr = re.sub(r'\bcoalesce\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)', r'dplyr::coalesce(\1, \2)', expr, flags=re.I)
@@ -223,6 +229,7 @@ class RuleEngine:
         """
         expr = RuleEngine._normalize_sas_date_literals(expr)
         expr = RuleEngine._normalize_sas_char_missing(expr)
+        expr = RuleEngine._normalize_sas_elementwise_functions(expr)
 
         # Handle SAS missing() function
         expr = re.sub(r'\bnot\s+missing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'!is.na(\1)', expr, flags=re.I)
