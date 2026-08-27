@@ -1171,7 +1171,7 @@ if page == "🔄 SAS Converter":
             from macro_processor import SASMacroProcessor
             _proc = SASMacroProcessor()
             unexp_sas, _, _ = _proc.process(raw_sas_input, extra_files=extra_files, expand_path_b=False)
-            _conv_result = _modernization_converter.convert_program(unexp_sas)
+            _conv_result = _modernization_converter.convert_program(unexp_sas, raw_sas_code=raw_sas_input)
         else:
             _conv_result = _modernization_converter.convert_program(raw_sas_input)
         _doc_gen = doc_generator.DocumentationGenerator()
