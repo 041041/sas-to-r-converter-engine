@@ -99,13 +99,14 @@ class SASMacroProcessor:
 
     # ── PUBLIC ENTRY POINT ────────────────────────────────────────
 
-    def process(self, sas_code: str, extra_files: list[str] = None) -> tuple[str, list, list]:
+    def process(self, sas_code: str, extra_files: list[str] = None, expand_path_b: bool = True) -> tuple[str, list, list]:
         """
         Main entry point.
 
         Args:
-            sas_code:    Main SAS program text
-            extra_files: List of additional .sas macro library strings
+            sas_code:        Main SAS program text
+            extra_files:     List of additional .sas macro library strings
+            expand_path_b:   If False, leaves PATH_B reusable utility macro calls unexpanded
 
         Returns:
             (expanded_code, warnings, sql_hints)
@@ -141,7 +142,7 @@ class SASMacroProcessor:
         self._detect_sql_macro_vars(code_do)
 
         # 8. Recursively expand macro calls
-        expanded = self._expand_macro_calls(code_do)
+        expanded = self._expand_macro_calls(code_do, expand_path_b=expand_path_b)
 
         # 8.5 Substitute global macro variables updated during macro execution
         expanded = self._substitute_let_vars(expanded, self._get_active_vars())
@@ -606,7 +607,7 @@ class SASMacroProcessor:
 
     # ── STEP 8: EXPAND MACRO CALLS ──────────────────────────────
 
-    def _expand_macro_calls(self, code: str, depth: int = 0, local_vars: dict = None, active_macros: set = None) -> str:
+    def _expand_macro_calls(self, code: str, depth: int = 0, local_vars: dict = None, active_macros: set = None, expand_path_b: bool = True) -> str:
         """
         Recursively expand macro calls in code.
         Handles: %macro_name; and %macro_name(args);
@@ -666,6 +667,13 @@ class SASMacroProcessor:
                         return match.group(0)
 
                 macro    = self.macro_library[name]
+                if not expand_path_b:
+                    from macro_converter import classify_macro
+                    cls_res  = classify_macro(name, macro, all_macro_defs=self.macro_library)
+                    if cls_res == 'PATH_B':
+                        # PATH_B is a reusable R utility — do NOT expand macro body into DATA/PROC step text!
+                        return match.group(0)
+
                 params   = macro["params"]
                 defaults = macro.get("defaults", {})
                 body     = macro["body"]
@@ -1066,7 +1074,7 @@ class SASMacroProcessor:
 # CONVENIENCE FUNCTION (used by app.py)
 # ─────────────────────────────────────────────────────────────────
 
-def expand_sas_macros(sas_code: str, extra_files: list[str] = None) -> tuple[str, list, list]:
+def expand_sas_macros(sas_code: str, extra_files: list[str] = None, expand_path_b: bool = True) -> tuple[str, list, list]:
     """
     Convenience wrapper around SASMacroProcessor.
 
@@ -1074,7 +1082,7 @@ def expand_sas_macros(sas_code: str, extra_files: list[str] = None) -> tuple[str
         (expanded_code, warnings, sql_hints)
     """
     processor = SASMacroProcessor()
-    return processor.process(sas_code, extra_files=extra_files)
+    return processor.process(sas_code, extra_files=extra_files, expand_path_b=expand_path_b)
 
 
 def has_macros(sas_code: str) -> bool:

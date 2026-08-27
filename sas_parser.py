@@ -252,27 +252,35 @@ def _parse_macros(code: str) -> dict[str, MacroIR]:
 def _parse_program_steps(code: str) -> list[ProgramStep]:
     steps = []
     
-    # Extract executable statements (DATA step or PROC step)
-    step_matches = re.finditer(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", code, re.DOTALL | re.I)
-    
+    # Extract executable statements (DATA step, PROC step, or standalone macro call)
+    step_pattern = re.compile(
+        r"((?:data|proc)\s+.*?;.*?(?:run|quit);|%(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\s*(?:\([^)]*\))?\s*;)",
+        re.DOTALL | re.I
+    )
+    step_matches = step_pattern.finditer(code)
+
     for idx, match in enumerate(step_matches):
         step_code = match.group(1).strip()
-        
+
         # Determine step type & name
         if step_code.lower().startswith("data"):
             step_type = "DATA_STEP"
             out_match = re.search(r"^\s*data\s+([\w.]+)", step_code, re.I | re.M)
             name = out_match.group(1).split('.')[-1].upper() if out_match else f"DATA_STEP_{idx+1}"
-        else:
+        elif step_code.lower().startswith("proc"):
             step_type = "PROC_STEP"
             proc_match = re.search(r"proc\s+(\w+)", step_code, re.I)
             proc_name = proc_match.group(1).upper() if proc_match else "UNKNOWN"
             name = f"PROC {proc_name}"
-            
+        else:
+            step_type = "MACRO_CALL"
+            m_match = re.search(r"%(\w+)", step_code, re.I)
+            name = f"%{m_match.group(1).upper()}" if m_match else "MACRO_CALL"
+
         # Extract inputs & outputs
         inputs = list(set([d.split('.')[-1].upper() for d in re.findall(r"(?:set|from|join|data\s*=)\s+([\w.]+)", step_code, re.I)]))
         outputs = list(set([d.split('.')[-1].upper() for d in re.findall(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step_code, re.I | re.M)]))
-        
+
         steps.append(ProgramStep(
             step_index=idx + 1,
             step_type=step_type,
@@ -281,7 +289,7 @@ def _parse_program_steps(code: str) -> list[ProgramStep]:
             input_datasets=inputs,
             output_datasets=outputs
         ))
-        
+
     return steps
 
 

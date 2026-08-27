@@ -49,9 +49,23 @@ def _sas_cond_to_r(cond: str, params: Optional[list] = None) -> str:
     Replaces &param macro references with bare param names.
     """
     r = cond.strip()
+    r = re.sub(r'^\s*if\s+', '', r, flags=re.IGNORECASE)
+    r = re.sub(r';\s*$', '', r)
+
+    param_set = set(str(p).strip().lstrip('&=').split('=')[0].lower() for p in (params or []))
+
+    def _sub_missing(m):
+        prefix = m.group(1) or ""
+        var_name = m.group(2).lstrip('&').lower()
+        negated = ("not" in prefix.lower()) or ("!" in prefix)
+        col_ref = f".data[[{var_name}]]" if (var_name in param_set or var_name == "var") else var_name
+        return f"!is.na({col_ref})" if negated else f"is.na({col_ref})"
+
+    r = re.sub(r'\b(not\s+)?missing\s*\(\s*([a-zA-Z_&]\w*)\s*\)', _sub_missing, r, flags=re.IGNORECASE)
 
     # macro variable references  &var  →  var
-    r = re.sub(r'&(\w+)', lambda m: m.group(1).lower(), r)
+    r = re.sub(r'&(\w+)', lambda m: f".data[[{m.group(1).lower()}]]" if m.group(1).lower() in param_set else m.group(1).lower(), r)
+    r = re.sub(r'!\s*is\.na\s*\(\s*([a-zA-Z_]\w*)\s*\)', lambda m: f"!is.na(.data[[{m.group(1)}]])" if (m.group(1) in param_set or m.group(1) == "var") and not m.group(1).startswith(".data") else m.group(0), r)
 
     # SAS word operators (order matters: longer first)
     replacements = [
@@ -725,14 +739,14 @@ class RuleBasedConverter:
             body_lines.extend(r_lines)
             total_conf = min(total_conf, conf)
 
-        # Add return statement for last assigned result variable
+        # Add return statement for last assigned result variable if assigned to a new variable
         last_result = None
         for ln in reversed(body_lines):
             m = re.match(r'\s*(\w+)\s*<-', ln)
             if m:
                 last_result = m.group(1)
                 break
-        if last_result:
+        if last_result and last_result.lower() not in ('data', 'out', func_name):
             body_lines.append(f"return({last_result})")
 
         body = "\n".join(f"  {ln}" for ln in body_lines if ln.strip())
@@ -770,7 +784,7 @@ class RuleBasedConverter:
             if stmt.kind == 'proc_report':
                 llm = getattr(self, '_llm_client', None)
                 return handler(stmt, dialect, llm_client=llm)
-            if stmt.kind in ('if_else', 'do_loop', 'do_while', 'let', 'call_symput', 'macro_call'):
+            if stmt.kind in ('data_step', 'if_else', 'do_loop', 'do_while', 'let', 'call_symput', 'macro_call'):
                 return handler(stmt, params, dialect)
             return handler(stmt, dialect)
 
@@ -975,7 +989,7 @@ class RuleBasedConverter:
         return lines, 0.92
 
     # ── DATA STEP ───────────────────────────────────────────────
-    def _data_step(self, stmt: MacroStatement, dialect: str) -> tuple:
+    def _data_step(self, stmt: MacroStatement, params: list, dialect: str) -> tuple:
         inp      = stmt.attrs['input']
         out      = stmt.attrs['output']
         assigns  = stmt.attrs.get('assigns', [])
@@ -1003,7 +1017,10 @@ class RuleBasedConverter:
                     lines.append(f"{out} <- bind_rows({', '.join(inputs)})")
                 conf = 0.80
             elif inp:
-                lines.append(f"{out} <- {inp}")
+                if out and out.lower() in ('out', '&out', inp.lower()):
+                    lines.append(f"{inp}")
+                else:
+                    lines.append(f"{out} <- {inp}")
             else:
                 lines.append(f"{out} <- data.frame()")
                 conf = 0.40
@@ -1011,7 +1028,7 @@ class RuleBasedConverter:
             # WHERE / IF filter
             filter_cond = where or (if_filt[0] if if_filt else '')
             if filter_cond:
-                r_cond = _sas_cond_to_r(filter_cond)
+                r_cond = _sas_cond_to_r(filter_cond, params=params)
                 lines[-1] += " %>%"
                 lines.append(f"  filter({r_cond})")
 
@@ -1020,7 +1037,7 @@ class RuleBasedConverter:
                 mutate_parts = []
                 for v, e in assigns:
                     # In a mutate() context, bare column names are fine — no df[[ ]] needed
-                    e_r = _sas_cond_to_r(e)
+                    e_r = _sas_cond_to_r(e, params=params)
                     mutate_parts.append(f"{v} = {e_r}")
                 lines[-1] += " %>%"
                 lines.append(f"  mutate({', '.join(mutate_parts)})")
@@ -2077,6 +2094,7 @@ def classify_macro(
     has_do_loop = bool(re.search(r'%do\b', body, re.IGNORECASE))
     has_macro_control_flow = bool(re.search(r'%\b(?:if|then|else|do)\b', body, re.IGNORECASE))
     is_path_a_dyn_ds = _has_multi_amp_data_stmt(body)
+
     single_res = 'PATH_A' if (has_macro_control_flow or has_do_loop or re.search(r'&&\w+', body) or is_path_a_dyn_ds) else None
 
     if single_res is None:

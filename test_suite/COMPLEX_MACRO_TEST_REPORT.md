@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-27 11:17:24
+**Test Timestamp**: 2026-08-27 20:04:33
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -11,13 +11,13 @@ Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of
 | Level & Name | Complexity | Parser | IR | Dependency | Conversion | R Optimization | Execution | Validation | Confidence |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Level 1**: Basic Macro | `20.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **85.0%** |
-| **Level 2**: Macro Control Flow | `40.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **85.0%** |
+| **Level 2**: Macro Control Flow | `40.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **90.0%** |
 | **Level 3**: Nested Macros | `43.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **90.0%** |
 | **Level 4**: Dynamic Macro References | `48.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **95.0%** |
 | **Level 5**: Macro Functions | `20.0/100` | PASS | PASS | PASS | PARTIAL | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **30.0%** |
 | **Level 6**: Infrastructure + Macros | `48.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **95.0%** |
 | **Level 7**: Complex Clinical Macro | `54.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **92.5%** |
-| **Level 8**: Extreme Macro | `96.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **73.3%** |
+| **Level 8**: Extreme Macro | `96.0/100` | PASS | PASS | PASS | PASS | `0.0%` | `WARN_NEEDS_DATA` | `MANUAL_REVIEW` | **78.8%** |
 
 
 ## 3. Core Findings & Answers to Success Criteria
@@ -135,7 +135,7 @@ DM_FILTERED
 # 🚀 SAS Modernization Report: Level 2_Macro_Control_Flow
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program contains 1 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 85.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program contains 2 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 90.0% with a 0.0% reduction in R code line count.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 2_Macro_Control_Flow`
@@ -148,7 +148,8 @@ Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program c
 ## 3. SAS Logic Analysis
 | Step # | Name | Type | Method | Confidence |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | `SUBSET_1` | `DATA_STEP` | `Rule_DataStepFilter` | 85% |
+| 1 | `%WHILE` | `MACRO_CALL` | `Rule_MacroCall` | 95% |
+| 2 | `SUBSET_1` | `DATA_STEP` | `Rule_DataStepFilter` | 85% |
 
 
 ## 4. Macro Analysis
@@ -162,12 +163,13 @@ Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program c
 ## 5. SAS → R Construct Mapping
 | SAS Construct | Target R Equivalent | Confidence | Translation Method |
 | :--- | :--- | :--- | :--- |
+| `%WHILE` | `while(3)...` | **High** | `Rule_MacroCall` |
 | `SUBSET_1` | `SUBSET_1 <- RAW_DATA %>%   filter(grp == 1) SUBSET_1...` | **High** | `Rule_DataStepFilter` |
 
 
 ## 6. R Code Optimization Metrics
-- **Original R Lines**: `4`
-- **Optimized R Lines**: `4`
+- **Original R Lines**: `5`
+- **Optimized R Lines**: `5`
 - **Line Reduction**: **`0.0%`**
 - **Redundant Intermediate Datasets Removed**: `0`
 - **Duplicate Imports Removed**: `0`
@@ -179,6 +181,8 @@ Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program c
 ## 7. Final Optimized R Code
 ```r
 # ── SAS Environment & Infrastructure Setup ──
+
+while(3)
 
 SUBSET_1 <- RAW_DATA %>%
   filter(grp == 1)
@@ -195,7 +199,7 @@ SUBSET_1
 
 
 ## 10. Conversion Confidence & Rationale
-- **Overall Confidence Score**: **`85.0%`**
+- **Overall Confidence Score**: **`90.0%`**
 - **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 2 infrastructure/connection item(s) for manual review.
 
 
@@ -210,7 +214,7 @@ Automated modernization analysis for 'Level 3_Nested_Macros'. The program contai
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 3_Nested_Macros`
 - **Input Datasets**: `ADSL`
-- **Output Datasets**: `ADSL_CLEAN, ADSL_SORTED`
+- **Output Datasets**: `ADSL_SORTED, ADSL_CLEAN`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -605,11 +609,11 @@ df
 # 🚀 SAS Modernization Report: Level 8_Extreme_Macro
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contains 3 execution step(s) and 2 macro definition(s). Achieved an overall conversion confidence of 73.3% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contains 4 execution step(s) and 2 macro definition(s). Achieved an overall conversion confidence of 78.8% with a 0.0% reduction in R code line count.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 8_Extreme_Macro`
-- **Input Datasets**: `DM_CLEAN, AE_CLEAN`
+- **Input Datasets**: `AE_CLEAN, DM_CLEAN`
 - **Output Datasets**: `, EXTREME_SUMMARY`
 - **Libraries / Data Sources**:
   - `RAW` $\rightarrow$ `lib_raw`
@@ -619,9 +623,10 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 ## 3. SAS Logic Analysis
 | Step # | Name | Type | Method | Confidence |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | `` | `DATA_STEP` | `ManualReviewRequired` | 30% |
-| 2 | `PROC SORT` | `PROC_STEP` | `Rule_ProcSort` | 95% |
-| 3 | `PROC SQL` | `PROC_STEP` | `Rule_ProcSQL` | 95% |
+| 1 | `%WHILE` | `MACRO_CALL` | `Rule_MacroCall` | 95% |
+| 2 | `` | `DATA_STEP` | `ManualReviewRequired` | 30% |
+| 3 | `PROC SORT` | `PROC_STEP` | `Rule_ProcSort` | 95% |
+| 4 | `PROC SQL` | `PROC_STEP` | `Rule_ProcSQL` | 95% |
 
 
 ## 4. Macro Analysis
@@ -640,14 +645,15 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 ## 5. SAS → R Construct Mapping
 | SAS Construct | Target R Equivalent | Confidence | Translation Method |
 | :--- | :--- | :--- | :--- |
+| `%WHILE` | `while(3)...` | **High** | `Rule_MacroCall` |
 | `` | `# TODO: Manual review required for step:...` | **Low** | `ManualReviewRequired` |
 | `PROC SORT` | `<-  %>%   arrange(usubjid)...` | **High** | `Rule_ProcSort` |
 | `PROC SQL` | `EXTREME_SUMMARY <- DM_CLEAN %>%   dplyr::left_join(AE_CLEAN, by = "usubjid") %>%   dplyr::select(usu...` | **High** | `Rule_ProcSQL` |
 
 
 ## 6. R Code Optimization Metrics
-- **Original R Lines**: `14`
-- **Optimized R Lines**: `14`
+- **Original R Lines**: `15`
+- **Optimized R Lines**: `15`
 - **Line Reduction**: **`0.0%`**
 - **Redundant Intermediate Datasets Removed**: `0`
 - **Duplicate Imports Removed**: `0`
@@ -665,6 +671,8 @@ file_setup <- "/clinical/setup_env.sas"
 # R Global Options
 options(stringsAsFactors = FALSE, check.names = FALSE)
 # %INCLUDE: source("setup")
+
+while(3)
 
 # TODO: Manual review required for step: 
 
@@ -690,14 +698,14 @@ EXTREME_SUMMARY
 - ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
 - ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
 - ⚠️ ⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1 — left unexpanded.
 - ⚠️ ⚠️ Unresolved macro variable &ds1_clean — left unexpanded.
 - ⚠️ ⚠️ Unresolved macro variable &ds1_proc — left unexpanded.
+- ⚠️ ⚠️ Unresolved macro variable &ds1 — left unexpanded.
 - ⚠️ Unresolved step requires manual translation: 
 
 
 ## 10. Conversion Confidence & Rationale
-- **Overall Confidence Score**: **`73.3%`**
+- **Overall Confidence Score**: **`78.8%`**
 - **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 12 infrastructure/connection item(s) for manual review.
 
 

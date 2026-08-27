@@ -1094,9 +1094,10 @@ if page == "🔄 SAS Converter":
             """)
 
         # Get macro definitions using parse_sas_source for authoritative extraction
-        from macro_converter import parse_sas_source, convert_macros_to_r
+        from macro_converter import parse_sas_source, convert_macros_to_r, classify_macro
         parsed_source = parse_sas_source(sas_script)
         _macro_defs = parsed_source["macro_definitions"]
+        has_path_b = any(classify_macro(m, m_def, all_macro_defs=_macro_defs) == "PATH_B" for m, m_def in _macro_defs.items()) if _macro_defs else False
 
         # Read uploaded macro files if present
         extra_files = []
@@ -1107,8 +1108,8 @@ if page == "🔄 SAS Converter":
                 except Exception:
                     pass
 
-        # Expand macros in SAS code
-        sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra_files)
+        # Expand macros in SAS code (preserve PATH_B calls when PATH_B macros are present)
+        sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra_files, expand_path_b=not has_path_b)
 
         for w in mac_warnings:
             st.warning(w)
@@ -1165,7 +1166,14 @@ if page == "🔄 SAS Converter":
         from doc_renderers import md_renderer
 
         _modernization_converter = sas_step_converter.SASStepConverter(dialect=r_dialect)
-        _conv_result = _modernization_converter.convert_program(raw_sas_input)
+        has_path_b_macro = any(cls == "PATH_B" for cls in classifications.values()) if _macro_defs else False
+        if has_path_b_macro:
+            from macro_processor import SASMacroProcessor
+            _proc = SASMacroProcessor()
+            unexp_sas, _, _ = _proc.process(raw_sas_input, extra_files=extra_files, expand_path_b=False)
+            _conv_result = _modernization_converter.convert_program(unexp_sas)
+        else:
+            _conv_result = _modernization_converter.convert_program(raw_sas_input)
         _doc_gen = doc_generator.DocumentationGenerator()
         _mod_doc = _doc_gen.generate_document(_conv_result, program_name="SAS_Program_Modernization")
         _md_report = md_renderer.render_markdown(_mod_doc)
@@ -1219,33 +1227,45 @@ if page == "🔄 SAS Converter":
 
         if mode == "Convert Only":
           st.subheader("Generated & Optimized R Code")
-          steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
+          step_pattern = re.compile(
+              r"((?:data|proc)\s+.*?;.*?(?:run|quit);|%(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\s*(?:\([^)]*\))?\s*;)",
+              re.DOTALL | re.IGNORECASE
+          )
+          steps = step_pattern.findall(sas_script)
           if not steps: st.error("No valid SAS steps found."); st.stop()
-  
+
           all_r = []
+          if has_path_b and _macro_defs and macro_result.get("r_functions"):
+              all_r.append("# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n")
+
           known_tables = []
           total_steps = len(steps)
-  
+
           # ── PROGRESS BAR for Convert Only ──
           prog = st.progress(0, text=f"Starting conversion of {total_steps} step(s)...")
           status = st.empty()
           overall_start = time.time()
           r_engine = RuleEngine(dialect=r_dialect)
-  
+
           for i, step in enumerate(steps, 1):
+              step_lower = step.lower()
               out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
               sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
-  
-              if out_name_match:
-                  sname = out_name_match.group(1).split('.')[-1].upper().strip()
-              elif sort_inplace_match and not re.search(r"out\s*=", step, re.I):
-                  sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
+
+              if step_lower.startswith("data"):
+                  stype = "DATA_STEP"
+                  sname = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"Step{i}"
+              elif step_lower.startswith("proc"):
+                  stype = "PROC_STEP"
+                  sname = sort_inplace_match.group(1).split('.')[-1].upper().strip() if (sort_inplace_match and not re.search(r"out\s*=", step, re.I)) else f"Step{i}"
               else:
-                  sname = f"Step{i}"
-  
+                  stype = "MACRO_CALL"
+                  m_match = re.search(r"%(\w+)", step, re.I)
+                  sname = f"%{m_match.group(1).upper()}" if m_match else f"MACRO_CALL_{i}"
+
               prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
               status.markdown(f"⏳ **Step {i}/{total_steps}** — `{sname}`")
-  
+
               with st.expander(f"Step {i}: {sname}", expanded=True):
                   t1, t2 = st.tabs(["SAS", "Generated R"])
                   with t1: st.code(step.strip(), language="sas")
@@ -1255,7 +1275,7 @@ if page == "🔄 SAS Converter":
                               step_start = time.time()
                               prog_step = ProgramStep(
                                   step_index=i,
-                                  step_type="PROC_STEP" if "proc " in step.lower() else "DATA_STEP",
+                                  step_type=stype,
                                   name=sname,
                                   source_code=step,
                                   input_datasets=known_tables,
@@ -1265,20 +1285,23 @@ if page == "🔄 SAS Converter":
 
                               rule_valid = False
                               if r_rule_code and conf >= 0.85:
-                                  if is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code):
-                                      from semantic_validator import validate_semantic_completeness
-                                      is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
-                                      if is_c:
+                                  if stype == "MACRO_CALL" or (is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code)):
+                                      if stype == "MACRO_CALL":
                                           rule_valid = True
+                                      else:
+                                          from semantic_validator import validate_semantic_completeness
+                                          is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
+                                          if is_c:
+                                              rule_valid = True
 
                               if rule_valid:
                                   rc = r_rule_code
                               else:
                                   rc = call_llm_api(step, [], known_tables, r_dialect, initial_candidate=r_rule_code)
-  
+
                               elapsed = time.time() - step_start
                               st.code(rc, language="r")
-                              if f"{sname} <-" in rc or f"{sname} =" in rc:
+                              if stype == "MACRO_CALL" or f"{sname} <-" in rc or f"{sname} =" in rc:
                                   all_r.append(f"# --- {sname} ---\n{rc}\n")
                               else:
                                   all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")

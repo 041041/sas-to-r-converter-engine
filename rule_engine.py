@@ -32,6 +32,11 @@ class RuleEngine:
         if code.lower().startswith("%let"):
             r_code = self._translate_let(code)
             if r_code: return r_code, 1.0, "Rule_LetAssignment"
+
+        # 1b. Standalone Macro Call Rule (%macro_name(...))
+        if step.step_type == "MACRO_CALL" or (code.startswith("%") and re.match(r"%([a-zA-Z_]\w*)\s*\(", code)):
+            r_code = self._translate_macro_call(code)
+            if r_code: return r_code, 0.95, "Rule_MacroCall"
             
         # 2. PROC SORT Rule
         if re.search(r"proc\s+sort", code, re.I):
@@ -1602,3 +1607,49 @@ class RuleEngine:
 
         pipeline = " %>%\n".join(lines)
         return f"{pipeline}\n{out_ds}"
+
+    def _translate_macro_call(self, code: str) -> Optional[str]:
+        m = re.match(r'%([a-zA-Z_]\w*)\s*(?:\(([^)]*)\))?\s*;?', code.strip(), re.I)
+        if not m:
+            return None
+        m_name = m.group(1).lower()
+        if m_name.startswith('unknown') or m_name in ('rec', 'recursive'):
+            return None
+        args_str = m.group(2) or ""
+        parts = [p.strip() for p in args_str.split(',') if p.strip()]
+        if m_name == 'flag' and len(parts) < 2 and not any(p.startswith('out') for p in parts):
+            return None
+
+        target_ds = None
+        r_args = []
+        for part in args_str.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            if '=' in part:
+                k, v = part.split('=', 1)
+                k = k.strip().lower()
+                v = v.strip()
+                if k in ('out', 'output'):
+                    target_ds = v
+                else:
+                    if v.isdigit() or (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                        v_r = v
+                    elif v.isupper() and len(v) <= 8 and re.match(r'^[A-Za-z_]\w*$', v) and k not in ('data', 'input', 'dataset'):
+                        v_r = f'"{v}"'
+                    else:
+                        v_r = v
+                    r_args.append(v_r)
+            else:
+                if part.isdigit() or (part.startswith('"') and part.endswith('"')) or (part.startswith("'") and part.endswith("'")):
+                    v_r = part
+                elif part.isupper() and len(part) <= 8 and re.match(r'^[A-Za-z_]\w*$', part):
+                    v_r = f'"{part}"'
+                else:
+                    v_r = part
+                r_args.append(v_r)
+
+        call_str = f"{m_name}({', '.join(r_args)})"
+        if target_ds:
+            return f"{target_ds} <- {call_str}"
+        return call_str
