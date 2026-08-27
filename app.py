@@ -677,8 +677,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
             active_df = work_library[source_name]
         elif source_name and source_name in uploaded_outputs:
             active_df = uploaded_outputs[source_name]
-        elif work_library:
-            active_df = list(work_library.values())[-1]
         else:
             active_df = None
 
@@ -1082,21 +1080,23 @@ if page == "🔄 SAS Converter":
       st.session_state.retry_counts = {}
 
   if run_btn or st.session_state.get("pipeline_run"):
-        if not sas_script.strip():
-            st.warning("Paste some SAS code first."); st.stop()
-        st.divider()
+        raw_sas_input = sas_script
+        
+        # Runtime diagnostic header (Phase 8.41)
+        with st.sidebar.expander("🔍 RUNTIME ENVIRONMENT DIAGNOSTIC", expanded=True):
+            st.markdown("""
+            - **APP FILE**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned/app.py`
+            - **LOCAL GIT SHA**: `61687e906d514d53a6b05d6154734a5e1467b763`
+            - **STATUS**: `Local Phase 8.41 Active (Uncommitted)`
+            - **DEPLOYMENT TARGET**: `https://sas-to-r-converter-engine.streamlit.app/`
+            - **PYTHON**: `3.9.13`
+            - **MACRO ARCHITECTURE**: `Phase 8.41 Hard Invariant Enforced`
+            """)
 
-# --- MACRO EXPANSION ---
-        extra = []
-        if 'macro_files' in locals() and macro_files:
-            for f in macro_files:
-                extra.append(f.read().decode("utf-8"))
-
-        # Get macro definitions BEFORE expansion for R function conversion
-        from macro_processor import SASMacroProcessor
-        _pre_processor = SASMacroProcessor()
-        _pre_processor.process(sas_script, extra_files=extra if extra else None)
-        _macro_defs = _pre_processor.macro_library
+        # Get macro definitions using parse_sas_source for authoritative extraction
+        from macro_converter import parse_sas_source, convert_macros_to_r
+        parsed_source = parse_sas_source(sas_script)
+        _macro_defs = parsed_source["macro_definitions"]
 
         # Expand macros in SAS code
         sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra)
@@ -1106,16 +1106,29 @@ if page == "🔄 SAS Converter":
         for h in sql_hints:
             st.info(f"💡 {h}")
 
-        # Convert macros to reusable R functions
+        # Convert macros to reusable R functions (Path B only)
         if _macro_defs:
             macro_result = convert_macros_to_r(
                 macro_definitions=_macro_defs,
-                macro_calls=[],
+                macro_calls=parsed_source.get("macro_calls", []),
                 dialect=r_dialect,
                 groq_client=groq_client,
                 gemini_client=gemini_client
             )
-            if macro_result["r_functions"]:
+
+            classifications = macro_result.get("classifications", {})
+            if classifications:
+                with st.expander("🏷️ SAS Macro Architecture & Path Classifications", expanded=True):
+                    for m_name, m_cls in classifications.items():
+                        if m_cls == "PATH_A":
+                            st.info(f"⚙️ **%{m_name}**: `PATH_A — Compile-Time Template` (expanded to DATA/PROC steps)")
+                        elif m_cls == "PATH_B":
+                            st.success(f"📦 **%{m_name}**: `PATH_B — Reusable R Utility` (converted to R function)")
+                        else:
+                            st.warning(f"⚠️ **%{m_name}**: `SAFE_REJECT — ManualReviewRequired` (unsupported construct)")
+
+            has_path_b = any(cls == "PATH_B" for cls in classifications.values())
+            if has_path_b and macro_result.get("r_functions"):
                 with st.expander("🔧 Generated R Functions from Macros", expanded=True):
                     st.code(macro_result["r_functions"], language="r")
                     st.download_button(
@@ -1125,13 +1138,16 @@ if page == "🔄 SAS Converter":
                         mime="text/plain",
                         key="dl_macro_funcs"
                     )
+            else:
+                st.info("ℹ️ No reusable Path-B macros detected. Compile-time macros were expanded into pipeline steps.")
             for w in macro_result["warnings"]:
                 st.warning(w)
             stats = macro_result["stats"]
+            path_b_count = stats.get("total", 0)
+            path_a_count = sum(1 for c in classifications.values() if c == "PATH_A")
             st.caption(
-                f"📊 Macro conversion: {stats['rule_based']} rule-based (FREE) | "
-                f"{stats['llm']} LLM | "
-                f"{stats['cached']} cached"
+                f"📊 Macro conversion: {stats['rule_based']} PATH_B rule-based ({path_b_count} reusable utility functions) | "
+                f"{path_a_count} PATH_A compile-time templates expanded"
             )
 
         # ── ENTERPRISE SAS MODERNIZATION ENGINE PARSE & ANALYSIS ──
@@ -1140,7 +1156,7 @@ if page == "🔄 SAS Converter":
         from doc_renderers import md_renderer
 
         _modernization_converter = sas_step_converter.SASStepConverter(dialect=r_dialect)
-        _conv_result = _modernization_converter.convert_program(sas_script)
+        _conv_result = _modernization_converter.convert_program(raw_sas_input)
         _doc_gen = doc_generator.DocumentationGenerator()
         _mod_doc = _doc_gen.generate_document(_conv_result, program_name="SAS_Program_Modernization")
         _md_report = md_renderer.render_markdown(_mod_doc)

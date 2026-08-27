@@ -48,8 +48,52 @@ class RuleEngine:
             r_code = self._translate_datalines(code)
             if r_code: return r_code, 1.0, "Rule_DatalinesToDataFrame"
 
-        # 5. Standard DATA Step Filtering Rule
+        # 5. DATA STEP DO LOOP (bounded simple subset)
+        if re.search(r"\bdo\s+\w+\s*=\s*\d+\s+to\s+\d+", code, re.I):
+            r_code = self._translate_data_step_do_loop(code)
+            if r_code:
+                return r_code, 0.85, "Rule_DataStepDoLoop"
+        # 6. Standard DATA Step Filtering & Merge Rules
         if code.lower().startswith("data"):
+            if re.search(r"\bmerge\b", code, re.I):
+                r_code = self._translate_data_step_merge(code)
+                if r_code: return r_code, 0.90, "Rule_DataStepMerge"
+            if re.search(r"\bby\s+", code, re.I) or re.search(r"\b(first|last)\.", code, re.I):
+                r_code = self._translate_data_step_by_group(code)
+                if r_code:
+                    return r_code, 0.90, "Rule_DataStepByGroup"
+                else:
+                    return None, 0.0, "NoRuleMatched"
+            if re.search(r"\bretain\b", code, re.I):
+                r_code = self._translate_data_step_retain(code)
+                if r_code:
+                    return r_code, 0.90, "Rule_DataStepRetain"
+                else:
+                    return None, 0.0, "NoRuleMatched"
+            if re.search(r"\b(lag\d*|dif\d*)\s*\(", code, re.I):
+                r_code = self._translate_data_step_lag(code)
+                if r_code:
+                    return r_code, 0.90, "Rule_DataStepLag"
+                else:
+                    return None, 0.0, "NoRuleMatched"
+            if re.search(r"\bselect\b", code, re.I):
+                r_code = self._translate_data_step_select_when(code)
+                if r_code:
+                    return r_code, 0.90, "Rule_DataStepSelectWhen"
+                else:
+                    return None, 0.0, "NoRuleMatched"
+            if re.search(r"\bif\s+(.*?)\s+then\s+delete\s*;", code, re.I):
+                r_code = self._translate_data_step_delete(code)
+                if r_code:
+                    return r_code, 0.90, "Rule_DataStepDelete"
+                else:
+                    return None, 0.0, "NoRuleMatched"
+            if re.search(r"\b(drop|keep|rename)\b", code, re.I):
+                r_code = self._translate_data_step_schema_rename(code)
+                if r_code:
+                    return r_code, 0.90, "Rule_DataStepSchemaRename"
+                else:
+                    return None, 0.0, "NoRuleMatched"
             r_code = self._translate_data_step_filter(code)
             if r_code: return r_code, 0.85, "Rule_DataStepFilter"
 
@@ -60,6 +104,158 @@ class RuleEngine:
             
         # No deterministic rule matched
         return None, 0.0, "NoRuleMatched"
+
+    @staticmethod
+    def _normalize_sas_date_literals(expr: str) -> str:
+        """
+        Normalizes valid SAS date literals 'DDMMMYYYY'd or "DDMMMYYYY"d into R as.Date("YYYY-MM-DD").
+        Rejects malformed dates (e.g., '99JAN2024'd, '01XYZ2024'd, invalid leap years) by keeping them unchanged.
+        """
+        import datetime
+
+        month_map = {
+            "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+            "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+        }
+
+        def _replace_date(m):
+            day_str, mon_str, year_str = m.group(1), m.group(2).upper(), m.group(3)
+            if mon_str not in month_map:
+                return m.group(0)
+            try:
+                day = int(day_str)
+                year = int(year_str)
+                mon = month_map[mon_str]
+                dt = datetime.date(year, mon, day)
+                return f'as.Date("{dt.strftime("%Y-%m-%d")}")'
+            except ValueError:
+                return m.group(0)
+
+        pattern = r"""['"](\d{1,2})([A-Za-z]{3})(\d{4})['"]d\b"""
+        return re.sub(pattern, _replace_date, expr, flags=re.I)
+
+    @staticmethod
+    def _normalize_sas_char_missing(expr: str) -> str:
+        """
+        Translates SAS empty character string comparison operators into R equivalents that handle both NA and empty string.
+        - var ne '' or var NE '' or var != '' or var != "" or var ^= '' -> !is.na(var) & var != ""
+        - var eq '' or var EQ '' or var = '' or var == '' or var == "" -> is.na(var) | var == ""
+        """
+        # 1. Handle NE / ne / != / ^= with empty string
+        expr = re.sub(
+            r'\b([a-zA-Z_]\w*)\s+(?:ne|NE|!=|\^=)\s*[\'"][\'"]',
+            r'!is.na(\1) & \1 != ""',
+            expr
+        )
+        # 2. Handle EQ / eq / = / == with empty string
+        expr = re.sub(
+            r'\b([a-zA-Z_]\w*)\s+(?:eq|EQ|==|=)\s*[\'"][\'"]',
+            r'is.na(\1) | \1 == ""',
+            expr
+        )
+        return expr
+
+    @staticmethod
+    def _normalize_sas_elementwise_functions(expr: str) -> str:
+        """
+        Normalizes 6 bounded SAS elementwise functions into exact R equivalents:
+        1. abs(A) -> abs(A)
+        2. missing(A) -> is.na(A)
+        3. coalesce(A, B) -> dplyr::coalesce(A, B)
+        4. round(A) -> round(A), round(A, 0.1) -> round(A, 1)
+        5. sum(A, B) -> ifelse(is.na(A) & is.na(B), NA_real_, dplyr::coalesce(A, 0) + dplyr::coalesce(B, 0))
+        6. mean(A, B) -> ifelse(is.na(A) & is.na(B), NA_real_, (dplyr::coalesce(A, 0) + dplyr::coalesce(B, 0)) / (!is.na(A) + !is.na(B)))
+        """
+        # 1. missing(var) -> is.na(var)
+        expr = re.sub(r'\bmissing\s*\(\s*(\w+)\s*\)', r'is.na(\1)', expr, flags=re.I)
+        
+        # 2. coalesce(var1, var2) -> dplyr::coalesce(var1, var2)
+        expr = re.sub(r'\bcoalesce\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)', r'dplyr::coalesce(\1, \2)', expr, flags=re.I)
+
+        # 3. sum(var1, var2)
+        expr = re.sub(
+            r'\bsum\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)',
+            r'ifelse(is.na(\1) & is.na(\2), NA_real_, dplyr::coalesce(\1, 0) + dplyr::coalesce(\2, 0))',
+            expr, flags=re.I
+        )
+
+        # 4. mean(var1, var2)
+        expr = re.sub(
+            r'\bmean\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)',
+            r'ifelse(is.na(\1) & is.na(\2), NA_real_, (dplyr::coalesce(\1, 0) + dplyr::coalesce(\2, 0)) / (!is.na(\1) + !is.na(\2)))',
+            expr, flags=re.I
+        )
+
+        # 5. round(var, step) -> round(var, digits) if step is e.g. 0.1 -> 1, 0.01 -> 2
+        def _replace_round(m):
+            v = m.group(1)
+            step_str = m.group(2) if m.group(2) else None
+            if not step_str:
+                return f"round({v})"
+            try:
+                step_flt = float(step_str)
+                if step_flt == 0.1: digits = 1
+                elif step_flt == 0.01: digits = 2
+                elif step_flt == 0.001: digits = 3
+                elif step_flt.is_integer(): digits = int(step_flt)
+                else: return m.group(0)
+                return f"round({v}, {digits})"
+            except ValueError:
+                return m.group(0)
+
+        expr = re.sub(r'\bround\s*\(\s*(\w+)(?:\s*,\s*([\d.]+))?\s*\)', _replace_round, expr, flags=re.I)
+
+        return expr
+
+    @staticmethod
+    def _normalize_sas_condition(expr: str) -> str:
+        """
+        Normalizes a SAS condition expression into valid R syntax by applying in order:
+        1. SAS date literal normalization ('DDMMMYYYY'd -> as.Date("YYYY-MM-DD"))
+        2. SAS character missing/empty string normalization (ne '' -> !is.na(x) & x != "")
+        3. SAS comparison & logical operator normalization (ne, ^=, eq, gt, ge, lt, le, =, and, or)
+        preserving quoted string contents intact.
+        """
+        expr = RuleEngine._normalize_sas_date_literals(expr)
+        expr = RuleEngine._normalize_sas_char_missing(expr)
+
+        # Handle SAS missing() function
+        expr = re.sub(r'\bnot\s+missing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'!is.na(\1)', expr, flags=re.I)
+        expr = re.sub(r'\bmissing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'is.na(\1)', expr, flags=re.I)
+
+        # Handle numeric missing . comparison
+        expr = re.sub(r'\b([a-zA-Z_]\w*)\s+(?:ne|NE|!=|\^=)\s*\.', r'!is.na(\1)', expr)
+        expr = re.sub(r'\b([a-zA-Z_]\w*)\s+(?:eq|EQ|==|=)\s*\.', r'is.na(\1)', expr)
+
+        pattern = r"('(?:''|[^'])*'|\"(?:\"\"|[^\"])*\")|(\^=|!=|>=|<=|==|\b(?:ne|eq|gt|ge|lt|le|and|or)\b)|(?<![<>!=^])=(?!=)"
+
+        def replacer(match):
+            quoted = match.group(1)
+            if quoted:
+                return quoted
+            op_group = match.group(2)
+            if op_group:
+                op = op_group.lower()
+                if op in ('ne', '^='):
+                    return '!='
+                elif op in ('eq', '=='):
+                    return '=='
+                elif op == 'gt':
+                    return '>'
+                elif op == 'ge':
+                    return '>='
+                elif op == 'lt':
+                    return '<'
+                elif op == 'le':
+                    return '<='
+                elif op == 'and':
+                    return '&'
+                elif op == 'or':
+                    return '|'
+                return match.group(2)
+            return '=='
+
+        return re.sub(pattern, replacer, expr, flags=re.I)
 
     def translate_macro_loop(self, loop_dict: dict) -> Tuple[Optional[str], float]:
         """
@@ -219,6 +415,677 @@ class RuleEngine:
         )
         return r_code
 
+    def _translate_data_step_merge(self, code: str) -> Optional[str]:
+        """
+        Translates a bounded 2-dataset DATA step MERGE with BY clause and optional IN= flags
+        into a deterministic dplyr join (inner_join, left_join, right_join, full_join).
+        """
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        merge_m = re.search(r"\bmerge\s+([^;]+);", code, re.I)
+        by_m = re.search(r"\bby\s+([^;]+);", code, re.I)
+
+        if not out_m or not merge_m or not by_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        merge_clause = merge_m.group(1).strip()
+
+        # Extract dataset items: e.g. DM(in=a) or SDTM.DM(in=a) or AE
+        ds_matches = re.findall(r"([\w.]+)(?:\s*\(\s*in\s*=\s*(\w+)\s*\))?", merge_clause, re.I)
+        if len(ds_matches) != 2:
+            return None
+
+        ds1_raw, flag1 = ds_matches[0]
+        ds2_raw, flag2 = ds_matches[1]
+
+        ds1 = ds1_raw.split('.')[-1].upper()
+        ds2 = ds2_raw.split('.')[-1].upper()
+        flag1 = flag1.lower() if flag1 else None
+        flag2 = flag2.lower() if flag2 else None
+
+        # BY variable check
+        by_vars = by_m.group(1).strip().split()
+        if len(by_vars) != 1:
+            return None
+        by_key = by_vars[0].strip()
+
+        # Unhandled complex statement check
+        for unhandled in ["output", "do", "retain", "delete", "stop", "abort", "sum", "mean", "coalesce", "missing", "abs", "round"]:
+            if re.search(rf"\b{unhandled}\b", code, re.I):
+                return None
+        if re.search(r"\b(lag\d*|dif\d*)\b", code, re.I):
+            return None
+
+        # IF statement parsing
+        if_m = re.search(r"\bif\s+([^;]+);", code, re.I)
+        if if_m:
+            if_stmt = if_m.group(1).strip().lower()
+            if flag1 and flag2 and if_stmt in (f"{flag1} and {flag2}", f"{flag2} and {flag1}", f"{flag1} & {flag2}", f"{flag2} & {flag1}"):
+                join_type = "inner_join"
+            elif flag1 and if_stmt in (flag1, f"{flag1} and not {flag2}", f"{flag1} & !{flag2}"):
+                join_type = "left_join"
+            elif flag2 and if_stmt in (flag2, f"{flag2} and not {flag1}", f"{flag2} & !{flag1}"):
+                join_type = "right_join"
+            else:
+                return None
+        else:
+            join_type = "full_join"
+
+        if self.is_tidyverse:
+            return (
+                f"{out_ds} <- {ds1} %>%\n"
+                f"  dplyr::{join_type}(\n"
+                f"    {ds2},\n"
+                f'    by = "{by_key}"\n'
+                f"  )\n"
+                f"{out_ds}"
+            )
+        else:
+            all_opt = "TRUE" if join_type in ("full_join", "right_join") else "FALSE"
+            all_x_opt = "TRUE" if join_type in ("full_join", "left_join") else "FALSE"
+            return f"{out_ds} <- merge({ds1}, {ds2}, by = '{by_key}', all.x = {all_x_opt}, all.y = {all_opt})\n{out_ds}"
+
+    def _translate_data_step_by_group(self, code: str) -> Optional[str]:
+        """Translate a DATA step with single-level BY-group / FIRST. / LAST. processing.
+        Supported patterns:
+        - BY <var>; IF FIRST.<var>;
+        - BY <var>; IF LAST.<var>;
+        - BY <var>; IF FIRST.<var> THEN <flag>='Y'; [ELSE <flag>='N';]
+        - BY <var>; IF LAST.<var> THEN <flag>='Y'; [ELSE <flag>='N';]
+        - Combined FIRST + LAST assignments in same step.
+        Returns R code string or None for unsupported patterns.
+        """
+        # Reject unsupported features immediately
+        unsupported = [
+            r"\bmerge\b", r"\bretain\b", r"\blag\b", r"\bdatalines\b", r"\bcards\b",
+            r"\bproc\b", r"\bdo\b", r"\barray\b", r"\boutput\b", r"\bmodify\b",
+            r"\bupdate\b", r"\bpoint\s*=", r"\bkey\s*=", r"\bnotsorted\b", r"\bdescending\b"
+        ]
+        for pat in unsupported:
+            if re.search(pat, code, re.I):
+                return None
+
+        # Parse output and input dataset
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        set_m = re.search(r"^\s*set\s+([\w.]+)", code, re.I | re.M)
+        if not out_m or not set_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        in_ds = set_m.group(1).split('.')[-1].upper()
+
+        # Parse BY statement
+        by_m = re.search(r"^\s*by\s+([^;]+);", code, re.I | re.M)
+        if not by_m:
+            return None
+
+        # Reject NOTSORTED or DESCENDING
+        if re.search(r"\b(notsorted|descending)\b", code, re.I):
+            return None
+
+        by_str = by_m.group(1).strip()
+        by_vars = [v.upper() for v in by_str.split()]
+        if not by_vars:
+            return None
+
+        by_var_str = ", ".join(by_vars)
+        by_vars_pat = "|".join(by_vars)
+
+        # Split code into clean statement lines
+        lines_raw = [l.strip() for l in code.split(";") if l.strip()]
+        stmts = [
+            l for l in lines_raw
+            if not l.lower().startswith(("data ", "data\t", "set ", "set\t", "by ", "by\t", "run"))
+        ]
+
+        # Classify statements into supported FIRST/LAST patterns
+        first_filt_var = None
+        last_filt_var = None
+        first_assigns = []  # list of (var_name, true_val, false_val, target_by_var)
+        last_assigns = []   # list of (var_name, true_val, false_val, target_by_var)
+
+        idx = 0
+        while idx < len(stmts):
+            stmt = stmts[idx]
+
+            # 1. FIRST Filter: if first.<by_var>; or where first.<by_var>;
+            m_ff = re.match(rf"^(?:if|where)\s+first\.(\w+)$", stmt, re.I)
+            if m_ff:
+                v = m_ff.group(1).upper()
+                if v not in by_vars:
+                    return None
+                first_filt_var = v
+                idx += 1
+                continue
+
+            # 2. LAST Filter: if last.<by_var>; or where last.<by_var>;
+            m_lf = re.match(rf"^(?:if|where)\s+last\.(\w+)$", stmt, re.I)
+            if m_lf:
+                v = m_lf.group(1).upper()
+                if v not in by_vars:
+                    return None
+                last_filt_var = v
+                idx += 1
+                continue
+
+            # 3. FIRST Assignment: if first.<by_var> then <var>='Y'; [else <var>='N';]
+            m_fa = re.match(
+                rf"^if\s+first\.(\w+)\s+then\s+(\w+)\s*=\s*(['\"][^'\"]+['\"]|\w+)"
+                rf"(?:\s*else\s+\2\s*=\s*(['\"][^'\"]+['\"]|\w+))?$",
+                stmt, re.I
+            )
+            if m_fa:
+                by_target = m_fa.group(1).upper()
+                if by_target not in by_vars:
+                    return None
+                v_name = m_fa.group(2).upper()
+                t_val = m_fa.group(3)
+                f_val = m_fa.group(4) if m_fa.group(4) else "'N'"
+                if not m_fa.group(4) and idx + 1 < len(stmts):
+                    m_else_next = re.match(rf"^else\s+{v_name}\s*=\s*(['\"][^'\"]+['\"]|\w+)$", stmts[idx + 1], re.I)
+                    if m_else_next:
+                        f_val = m_else_next.group(1)
+                        idx += 1
+                first_assigns.append((v_name, t_val, f_val, by_target))
+                idx += 1
+                continue
+
+            # 4. LAST Assignment: if last.<by_var> then <var>='Y'; [else <var>='N';]
+            m_la = re.match(
+                rf"^if\s+last\.(\w+)\s+then\s+(\w+)\s*=\s*(['\"][^'\"]+['\"]|\w+)"
+                rf"(?:\s*else\s+\2\s*=\s*(['\"][^'\"]+['\"]|\w+))?$",
+                stmt, re.I
+            )
+            if m_la:
+                by_target = m_la.group(1).upper()
+                if by_target not in by_vars:
+                    return None
+                v_name = m_la.group(2).upper()
+                t_val = m_la.group(3)
+                f_val = m_la.group(4) if m_la.group(4) else "'N'"
+                if not m_la.group(4) and idx + 1 < len(stmts):
+                    m_else_next = re.match(rf"^else\s+{v_name}\s*=\s*(['\"][^'\"]+['\"]|\w+)$", stmts[idx + 1], re.I)
+                    if m_else_next:
+                        f_val = m_else_next.group(1)
+                        idx += 1
+                last_assigns.append((v_name, t_val, f_val, by_target))
+                idx += 1
+                continue
+
+            # Unrecognized statement in BY-group DATA step -> SAFE REJECT
+            return None
+
+        # Check for invalid combinations
+        if not (first_filt_var or last_filt_var or first_assigns or last_assigns):
+            return None
+        if (first_filt_var or last_filt_var) and (first_assigns or last_assigns):
+            return None
+        if first_filt_var and last_filt_var:
+            return None
+
+        def _grp_vars_str(target_var):
+            target_idx = by_vars.index(target_var)
+            return ", ".join(by_vars[:target_idx + 1])
+
+        # Emit R code according to matched pattern
+        if first_filt_var:
+            grp_str = _grp_vars_str(first_filt_var)
+            return (
+                f"{out_ds} <- {in_ds} %>%\n"
+                f"  dplyr::arrange({by_var_str}) %>%\n"
+                f"  dplyr::group_by({grp_str}) %>%\n"
+                f"  dplyr::slice_head(n = 1) %>%\n"
+                f"  dplyr::ungroup()\n"
+                f"{out_ds}"
+            )
+        elif last_filt_var:
+            grp_str = _grp_vars_str(last_filt_var)
+            return (
+                f"{out_ds} <- {in_ds} %>%\n"
+                f"  dplyr::arrange({by_var_str}) %>%\n"
+                f"  dplyr::group_by({grp_str}) %>%\n"
+                f"  dplyr::slice_tail(n = 1) %>%\n"
+                f"  dplyr::ungroup()\n"
+                f"{out_ds}"
+            )
+        elif first_assigns or last_assigns:
+            pipe_parts = [f"{out_ds} <- {in_ds}", f"  dplyr::arrange({by_var_str})"]
+
+            all_assigns = []
+            for fa in first_assigns:
+                all_assigns.append((fa[0], fa[1], fa[2], fa[3], "first"))
+            for la in last_assigns:
+                all_assigns.append((la[0], la[1], la[2], la[3], "last"))
+
+            current_grp = None
+            mut_lines = []
+
+            for v_name, t_val, f_val, by_target, mode in all_assigns:
+                g_str = _grp_vars_str(by_target)
+                if current_grp != g_str:
+                    if mut_lines:
+                        mut_str = ",\n".join(mut_lines)
+                        pipe_parts.append(f"  dplyr::mutate(\n{mut_str}\n  )")
+                        mut_lines = []
+                    pipe_parts.append(f"  dplyr::group_by({g_str})")
+                    current_grp = g_str
+
+                cond_expr = "row_number() == 1" if mode == "first" else "row_number() == n()"
+                mut_lines.append(f"    {v_name} = ifelse({cond_expr}, {t_val}, {f_val})")
+
+            if mut_lines:
+                mut_str = ",\n".join(mut_lines)
+                pipe_parts.append(f"  dplyr::mutate(\n{mut_str}\n  )")
+
+            pipe_parts.append("  dplyr::ungroup()")
+            return " %>%\n".join(pipe_parts) + f"\n{out_ds}"
+
+        return None
+
+        return None
+
+    def _translate_data_step_retain(self, code: str) -> Optional[str]:
+        """Translate a DATA step with simple bounded RETAIN processing.
+        Supported patterns:
+        - Pattern A: retain <var> 0; <var> = <var> + 1; (Cumulative row counter)
+        - Pattern B: retain <var> <init_val>; (Static initialization)
+        - Pattern C: retain <var>; if <src> ne . then <var> = <src>; (LOCF carry forward)
+        Returns R code string or None for unsupported patterns.
+        """
+        # Reject unsupported features immediately
+        unsupported = [
+            r"\bmerge\b", r"\bby\b", r"\bfirst\.", r"\blast\.", r"\blag\b",
+            r"\bdatalines\b", r"\bcards\b", r"\bproc\b", r"\bdo\b", r"\barray\b",
+            r"\boutput\b", r"\bmodify\b", r"\bupdate\b", r"\bpoint\s*=", r"\bkey\s*="
+        ]
+        for pat in unsupported:
+            if re.search(pat, code, re.I):
+                return None
+
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        set_m = re.search(r"^\s*set\s+([\w.]+)", code, re.I | re.M)
+        if not out_m or not set_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        in_ds = set_m.group(1).split('.')[-1].upper()
+
+        lines_raw = [l.strip() for l in code.split(";") if l.strip()]
+        stmts = [
+            l for l in lines_raw
+            if not l.lower().startswith(("data ", "data\t", "set ", "set\t", "run"))
+        ]
+
+        if not stmts:
+            return None
+
+        # Parse RETAIN statement
+        retain_stmt = stmts[0]
+        m_ret = re.match(r"^retain\s+(\w+)(?:\s+(.+))?$", retain_stmt, re.I)
+        if not m_ret:
+            return None
+
+        ret_var = m_ret.group(1).upper()
+        init_val = m_ret.group(2).strip() if m_ret.group(2) else None
+
+        remaining_stmts = stmts[1:]
+
+        # Pattern B: Only RETAIN statement with initial value, no further statements
+        if not remaining_stmts and init_val is not None:
+            return (
+                f"{out_ds} <- {in_ds} %>%\n"
+                f"  dplyr::mutate(\n"
+                f"    {ret_var} = {init_val}\n"
+                f"  )\n"
+                f"{out_ds}"
+            )
+
+        # Pattern A: Cumulative counter: <var> = <var> + 1;
+        if len(remaining_stmts) == 1:
+            m_cnt = re.match(rf"^{ret_var}\s*=\s*{ret_var}\s*\+\s*1$", remaining_stmts[0], re.I)
+            if m_cnt and (init_val is None or init_val in ("0", "1")):
+                return (
+                    f"{out_ds} <- {in_ds} %>%\n"
+                    f"  dplyr::mutate(\n"
+                    f"    {ret_var} = dplyr::row_number()\n"
+                    f"  )\n"
+                    f"{out_ds}"
+                )
+
+        # Pattern C: Carry Forward (LOCF): if <src> ne . then <var> = <src>;
+        if len(remaining_stmts) == 1:
+            m_locf = re.match(
+                rf"^(?:if\s+(?:not\s+missing\((\w+)\)|(\w+)\s*(?:ne|!=)\s*\.)\s+then\s+)?{ret_var}\s*=\s*(\w+)$",
+                remaining_stmts[0], re.I
+            )
+            if m_locf:
+                src_var = (m_locf.group(1) or m_locf.group(2) or m_locf.group(3)).upper()
+                return (
+                    f"{out_ds} <- {in_ds} %>%\n"
+                    f"  dplyr::mutate(\n"
+                    f"    {ret_var} = {src_var}\n"
+                    f"  ) %>%\n"
+                    f"  tidyr::fill({ret_var}, .direction = \"down\")\n"
+                    f"{out_ds}"
+                )
+
+        # All other RETAIN patterns -> SAFE REJECT
+        return None
+
+    def _translate_data_step_lag(self, code: str) -> Optional[str]:
+        """Translate a DATA step with bounded unconditional LAGn() or DIF() processing.
+        Supports:
+        - PREV_AGE = lag(AGE); / PREV2 = lag2(AGE); / PREV3 = lag3(AGE);
+        - DIFF = dif(AGE);
+        - Multiple independent assignments: P1 = lag2(A); P2 = lag3(B);
+        - Simple arithmetic with 1 lagN/dif call: DIFF = AGE - lag2(AGE);
+        Returns R code string or None for unsupported patterns.
+        """
+        # Reject unsupported features and non-deterministic DIFn / dynamic LAG distance
+        if re.search(r"\bdif\d+\s*\(", code, re.I) or re.search(r"\blag0+\s*\(", code, re.I) or re.search(r"\blag\d*\s*\(\s*[^)]*&", code, re.I):
+            return None
+
+        unsupported = [
+            r"\bmerge\b", r"\bby\b", r"\bfirst\.", r"\blast\.", r"\bretain\b",
+            r"\bdatalines\b", r"\bcards\b", r"\bproc\b", r"\bdo\b", r"\barray\b",
+            r"\boutput\b", r"\bmodify\b", r"\bupdate\b", r"\bpoint\s*=", r"\bkey\s*=",
+            r"\bif\b", r"\bwhere\b", r"\bthen\b", r"\belse\b"
+        ]
+        for pat in unsupported:
+            if re.search(pat, code, re.I):
+                return None
+
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        set_m = re.search(r"^\s*set\s+([\w.]+)", code, re.I | re.M)
+        if not out_m or not set_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        in_ds = set_m.group(1).split('.')[-1].upper()
+
+        lines_raw = [l.strip() for l in code.split(";") if l.strip()]
+        stmts = [
+            l for l in lines_raw
+            if not l.lower().startswith(("data ", "data\t", "set ", "set\t", "run"))
+        ]
+
+        if not stmts:
+            return None
+
+        mutate_lines = []
+
+        def _r_lag_expr(call_str):
+            m_l = re.match(r"^lag(\d*)\s*\(\s*(\w+)\s*\)$", call_str, re.I)
+            m_d = re.match(r"^dif\s*\(\s*(\w+)\s*\)$", call_str, re.I)
+            if m_l:
+                n_str = m_l.group(1)
+                v = m_l.group(2).upper()
+                if not n_str or n_str == "1":
+                    return f"dplyr::lag({v})"
+                else:
+                    n_val = int(n_str)
+                    if n_val <= 0: return None
+                    return f"dplyr::lag({v}, {n_val})"
+            elif m_d:
+                v = m_d.group(1).upper()
+                return f"{v} - dplyr::lag({v})"
+            return None
+
+        for stmt in stmts:
+            m_assign = re.match(r"^(\w+)\s*=\s*(.+)$", stmt, re.I)
+            if not m_assign:
+                return None
+
+            target_var = m_assign.group(1).strip().upper()
+            expr = m_assign.group(2).strip()
+
+            lag_or_dif_calls = re.findall(r"\b(?:lag\d*|dif)\s*\(", expr, re.I)
+            if len(lag_or_dif_calls) == 0:
+                mutate_lines.append(f"    {target_var} = {expr}")
+                continue
+            elif len(lag_or_dif_calls) > 1:
+                return None
+
+            # Must NOT be nested: lag(lag(x)) or dif(dif(x)) or lag(dif(x))
+            if re.search(r"\b(?:lag\d*|dif)\s*\(\s*(?:lag\d*|dif)\s*\(", expr, re.I):
+                return None
+
+            # Pattern 1: Simple lagN or dif call
+            m_simple = re.match(r"^(lag\d*|dif)\s*\(\s*(\w+)\s*\)$", expr, re.I)
+            # Pattern 2: Arithmetic: var op (lagN|dif)
+            m_arith_1 = re.match(r"^(\w+)\s*([-+*/])\s*((?:lag\d*|dif)\s*\(\s*\w+\s*\))$", expr, re.I)
+            # Pattern 3: Arithmetic: (lagN|dif) op var
+            m_arith_2 = re.match(r"^((?:lag\d*|dif)\s*\(\s*\w+\s*\))\s*([-+*/])\s*(\w+)$", expr, re.I)
+
+            if m_simple:
+                r_expr = _r_lag_expr(expr)
+                if not r_expr: return None
+            elif m_arith_1:
+                left_var = m_arith_1.group(1).upper()
+                op = m_arith_1.group(2)
+                r_sub = _r_lag_expr(m_arith_1.group(3))
+                if not r_sub: return None
+                r_expr = f"{left_var} {op} {r_sub}"
+            elif m_arith_2:
+                r_sub = _r_lag_expr(m_arith_2.group(1))
+                op = m_arith_2.group(2)
+                right_var = m_arith_2.group(3).upper()
+                if not r_sub: return None
+                r_expr = f"{r_sub} {op} {right_var}"
+            else:
+                return None
+
+            mutate_lines.append(f"    {target_var} = {r_expr}")
+
+        mut_str = ",\n".join(mutate_lines)
+        return (
+            f"{out_ds} <- {in_ds} %>%\n"
+            f"  dplyr::mutate(\n"
+            f"{mut_str}\n"
+            f"  )\n"
+            f"{out_ds}"
+        )
+
+    def _translate_data_step_select_when(self, code: str) -> Optional[str]:
+        """Translate a DATA step with bounded SELECT/WHEN/OTHERWISE structure.
+        Supports:
+        select; when (cond1) VAR=val1; when (cond2) VAR=val2; otherwise VAR=val_def; end;
+        select(EXPR); when ('val1') VAR=val1; otherwise VAR=val_def; end;
+        """
+        unsupported = [
+            r"\bmerge\b", r"\bby\b", r"\bfirst\.", r"\blast\.", r"\bretain\b", r"\blag\b",
+            r"\bdatalines\b", r"\bcards\b", r"\bproc\b", r"\bdo\b", r"\barray\b",
+            r"\boutput\b", r"\bmodify\b", r"\bupdate\b", r"\bpoint\s*=", r"\bkey\s*="
+        ]
+        for pat in unsupported:
+            if re.search(pat, code, re.I):
+                return None
+
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        set_m = re.search(r"^\s*set\s+([\w.]+)", code, re.I | re.M)
+        if not out_m or not set_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        in_ds = set_m.group(1).split('.')[-1].upper()
+
+        m_sel = re.search(r"\bselect\s*(\([^)]*\))?\s*;(.*?)end\s*;", code, re.I | re.DOTALL)
+        if not m_sel:
+            return None
+
+        sel_expr_raw = m_sel.group(1)
+        sel_var = sel_expr_raw.strip()[1:-1].strip() if sel_expr_raw else None
+        block_content = m_sel.group(2).strip()
+
+        when_matches = re.findall(r"when\s*\(([^)]+)\)\s*(\w+)\s*=\s*(.*?);", block_content, re.I)
+        m_oth = re.search(r"otherwise\s+(\w+)\s*=\s*(.*?);", block_content, re.I)
+
+        if not when_matches:
+            when_matches = re.findall(r"when\s*\((['\"][^'\"]+['\"]|\w+)\)\s*(\w+)\s*=\s*(.*?);", block_content, re.I)
+
+        if not when_matches:
+            return None
+
+        target_vars = {m[1].upper() for m in when_matches}
+        if m_oth:
+            target_vars.add(m_oth.group(1).upper())
+        if len(target_vars) != 1:
+            return None
+        target_var = list(target_vars)[0]
+
+        cases = []
+        for w_cond, w_var, w_val in when_matches:
+            w_val_norm = self._normalize_sas_elementwise_functions(w_val.strip())
+            w_val_norm = self._normalize_sas_date_literals(w_val_norm)
+            if sel_var:
+                cond_str = f"{sel_var} == {w_cond.strip()}"
+            else:
+                cond_str = self._normalize_sas_condition(w_cond.strip())
+            cases.append(f"      {cond_str} ~ {w_val_norm}")
+
+        if m_oth:
+            oth_val = self._normalize_sas_elementwise_functions(m_oth.group(2).strip())
+            oth_val = self._normalize_sas_date_literals(oth_val)
+            cases.append(f"      TRUE ~ {oth_val}")
+
+        case_str = ",\n".join(cases)
+
+        return (
+            f"{out_ds} <- {in_ds} %>%\n"
+            f"  dplyr::mutate(\n"
+            f"    {target_var} = dplyr::case_when(\n"
+            f"{case_str}\n"
+            f"    )\n"
+            f"  )\n"
+            f"{out_ds}"
+        )
+
+    def _translate_data_step_delete(self, code: str) -> Optional[str]:
+        """Translate a DATA step with single conditional DELETE statement: if cond then delete;"""
+        unsupported = [
+            r"\bmerge\b", r"\bby\b", r"\bfirst\.", r"\blast\.", r"\bretain\b", r"\blag\b",
+            r"\bdatalines\b", r"\bcards\b", r"\bproc\b", r"\bdo\b", r"\barray\b",
+            r"\boutput\b", r"\bmodify\b", r"\bupdate\b", r"\bpoint\s*=", r"\bkey\s*="
+        ]
+        for pat in unsupported:
+            if re.search(pat, code, re.I):
+                return None
+
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        set_m = re.search(r"^\s*set\s+([\w.]+)", code, re.I | re.M)
+        if not out_m or not set_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        in_ds = set_m.group(1).split('.')[-1].upper()
+
+        m_del = re.search(r"\bif\s+(.*?)\s+then\s+delete\s*;", code, re.I)
+        if not m_del:
+            return None
+
+        del_cond = m_del.group(1).strip()
+        norm_cond = self._normalize_sas_condition(del_cond)
+
+        return (
+            f"{out_ds} <- {in_ds} %>%\n"
+            f"  dplyr::filter(!({norm_cond}))\n"
+            f"{out_ds}"
+        )
+
+    def _translate_data_step_schema_rename(self, code: str) -> Optional[str]:
+        """Translate a DATA step with drop, keep, and/or rename statements.
+        Important: Applied at END of pipeline after any assignments.
+        """
+        unsupported = [
+            r"\bmerge\b", r"\bby\b", r"\bfirst\.", r"\blast\.", r"\bretain\b", r"\blag\b",
+            r"\bdatalines\b", r"\bcards\b", r"\bproc\b", r"\bdo\b", r"\barray\b",
+            r"\boutput\b", r"\bmodify\b", r"\bupdate\b", r"\bpoint\s*=", r"\bkey\s*="
+        ]
+        for pat in unsupported:
+            if re.search(pat, code, re.I):
+                return None
+
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        set_m = re.search(r"^\s*set\s+([\w.]+)", code, re.I | re.M)
+        if not out_m or not set_m:
+            return None
+
+        out_ds = out_m.group(1).split('.')[-1].upper()
+        in_ds = set_m.group(1).split('.')[-1].upper()
+
+        # Reject conflicting DROP + KEEP
+        if re.search(r"\bdrop\b", code, re.I) and re.search(r"\bkeep\b", code, re.I):
+            return None
+
+        lines_raw = [l.strip() for l in code.split(";") if l.strip()]
+        stmts = [
+            l for l in lines_raw
+            if not l.lower().startswith(("data ", "data\t", "set ", "set\t", "run"))
+        ]
+
+        pipe_steps = [f"{out_ds} <- {in_ds}"]
+        mutates = []
+        schema_step = None
+        rename_step = None
+
+        filters = []
+        for stmt in stmts:
+            m_drop = re.match(r"^drop\s+(.+)$", stmt, re.I)
+            m_keep = re.match(r"^keep\s+(.+)$", stmt, re.I)
+            m_rename = re.match(r"^rename\s+(.+)$", stmt, re.I)
+            m_if_not_missing = re.match(r"^if\s+not\s+missing\s*\((.+)\)$", stmt, re.I)
+            m_if_cond = re.match(r"^if\s+(.+)$", stmt, re.I)
+            m_assign = re.match(r"^(\w+)\s*=\s*(.+)$", stmt, re.I)
+
+            if m_drop:
+                drop_vars = [v.upper() for v in m_drop.group(1).split()]
+                drop_str = ", ".join(f"-{v}" for v in drop_vars)
+                schema_step = f"  dplyr::select({drop_str})"
+            elif m_keep:
+                keep_vars = [v.upper() for v in m_keep.group(1).split()]
+                keep_str = ", ".join(keep_vars)
+                schema_step = f"  dplyr::select({keep_str})"
+            elif m_rename:
+                pairs = m_rename.group(1).split()
+                ren_pairs = []
+                for p in pairs:
+                    if "=" not in p:
+                        return None
+                    old_v, new_v = p.split("=")
+                    ren_pairs.append(f"{new_v.strip().upper()} = {old_v.strip().upper()}")
+                rename_str = ", ".join(ren_pairs)
+                rename_step = f"  dplyr::rename({rename_str})"
+            elif m_if_not_missing:
+                col = m_if_not_missing.group(1).strip().upper()
+                filters.append(f"  dplyr::filter(!is.na({col}))")
+            elif m_if_cond:
+                cond = m_if_cond.group(1).strip()
+                cond_r = self._normalize_sas_condition(cond)
+                filters.append(f"  dplyr::filter({cond_r})")
+            elif m_assign:
+                var_n = m_assign.group(1).upper()
+                val_e = self._normalize_sas_elementwise_functions(m_assign.group(2))
+                val_e = self._normalize_sas_date_literals(val_e)
+                val_e = self._normalize_sas_char_missing(val_e)
+                mutates.append(f"    {var_n} = {val_e}")
+            else:
+                return None
+
+        if filters:
+            pipe_steps.extend(filters)
+        if mutates:
+            mut_str = ",\n".join(mutates)
+            pipe_steps.append(f"  dplyr::mutate(\n{mut_str}\n  )")
+        if schema_step:
+            pipe_steps.append(schema_step)
+        if rename_step:
+            pipe_steps.append(rename_step)
+
+        if len(pipe_steps) == 1:
+            return None
+
+        return " %>%\n".join(pipe_steps) + f"\n{out_ds}"
+
     def _translate_data_step_filter(self, code: str) -> Optional[str]:
         out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
         set_m = re.search(r"set\s+([\w.]+)", code, re.I)
@@ -235,9 +1102,7 @@ class RuleEngine:
         for f_match in re.finditer(r'(?:if|where)\s+([^;]+?);', code_clean, re.I):
             stmt = f_match.group(1).strip()
             if not re.search(r'\bthen\b', stmt, re.I):
-                r_cond = re.sub(r'(?<![<>!=])=(?!=)', '==', stmt)
-                r_cond = re.sub(r'\band\b', ' & ', r_cond, flags=re.I)
-                r_cond = re.sub(r'\bor\b', ' | ', r_cond, flags=re.I)
+                r_cond = self._normalize_sas_condition(stmt)
                 filters.append(r_cond.strip())
 
         # 2. Collect simple variable assignments (e.g. STUDY = "STUDY001";)
@@ -246,6 +1111,9 @@ class RuleEngine:
             var_name = a_match.group(1).strip().upper()
             val_expr = a_match.group(2).strip()
             if var_name not in ("SET", "DATA", "LENGTH", "KEEP", "DROP", "RENAME") and not re.search(r'^(if|where|proc|run)\b', var_name, re.I):
+                val_expr = self._normalize_sas_elementwise_functions(val_expr)
+                val_expr = self._normalize_sas_date_literals(val_expr)
+                val_expr = self._normalize_sas_char_missing(val_expr)
                 if "%sysfunc" in val_expr.lower() or "today()" in val_expr.lower():
                     mutates.append(f'{var_name} = Sys.Date()')
                 else:
@@ -283,9 +1151,7 @@ class RuleEngine:
                 idx = j
                 cw_parts = []
                 for c, v in cases:
-                    rc = re.sub(r'(?<![<>!=])=(?!=)', '==', c)
-                    rc = re.sub(r'\band\b', ' & ', rc, flags=re.I)
-                    rc = re.sub(r'\bor\b', ' | ', rc, flags=re.I)
+                    rc = self._normalize_sas_condition(c)
                     cw_parts.append(f'{rc} ~ {v}')
                 if default_val is not None:
                     def_v = "NA_real_" if default_val in ('.', 'NA') else default_val
@@ -310,7 +1176,69 @@ class RuleEngine:
         if filters:
             return f"{out_ds} <- {in_ds} %>%\n  filter({filters[0]})\n{out_ds}"
         return f"{out_ds} <- {in_ds}\n{out_ds}"
+    def _translate_data_step_do_loop(self, code: str) -> Optional[str]:
+        """Translate a DATA step containing a single bounded DO loop.
+        Supported pattern (exactly one loop, numeric bounds, simple assignments, single OUTPUT):
+            data <out>;
+            set <in>;
+            do <idx> = <start> to <end>;
+                <var> = <expr>;
+                ...
+                output;
+            end;
+        Returns R code using tidyverse pipeline or None for unsupported patterns.
+        """
+        # 1. Detect output dataset
+        out_m = re.search(r"^\s*data\s+([\w.]+)", code, re.I | re.M)
+        if not out_m:
+            return None
+        out_ds = out_m.group(1).split('.')[-1].upper()
 
+        # 2. Optional input dataset (SET) and MERGE guard
+        set_m = re.search(r"set\s+([\w.]+)", code, re.I)
+        in_ds = set_m.group(1).split('.')[-1].upper() if set_m else None
+        # Reject if MERGE is present, as DO-loop rule should not apply to merge steps
+        if re.search(r"\bmerge\b", code, re.I):
+            return None
+        # 3. Single DO loop with numeric bounds
+        do_pattern = r"do\s+(\w+)\s*=\s*(\d+)\s+to\s+(\d+);(.*?)output;\s*end;"
+        do_match = re.search(do_pattern, code, re.I | re.DOTALL)
+        if not do_match:
+            return None
+        loop_var, start_str, end_str, body = do_match.groups()
+        start = int(start_str)
+        end = int(end_str)
+        if start > end:
+            return None
+
+        # Ensure only one DO loop in the whole step
+        if len(re.findall(r"\bdo\b", code, re.I)) != 1:
+            return None
+
+        # 4. Extract simple assignments from loop body (excluding OUTPUT)
+        assignments = []
+        stmts = [s.strip() for s in body.split(';') if s.strip()]
+        for stmt in stmts:
+            assign_match = re.match(r"^(\w+)\s*=\s*(.+)$", stmt, re.I)
+            if not assign_match:
+                return None
+            var_name = assign_match.group(1).strip().upper()
+            expr = assign_match.group(2).strip()
+            expr = self._normalize_sas_date_literals(expr)
+            expr = self._normalize_sas_char_missing(expr)
+            expr = self._normalize_sas_condition(expr)
+            assignments.append(f"{var_name} = {expr}")
+
+        if not assignments:
+            return None
+
+        # 5. Build R pipeline (tidyverse style)
+        r_code = (
+            f"{out_ds} <- data.frame({loop_var.lower()} = {start}:{end}) %>%\n"
+            f"  dplyr::mutate(\n    " + ",\n    ".join(assignments) + "\n  )\n"
+            f"{out_ds}"
+        )
+        return r_code
     def _translate_proc_sql(self, code: str) -> Optional[str]:
         if not re.search(r"proc\s+sql", code, re.I):
             return None
@@ -505,6 +1433,23 @@ class RuleEngine:
         if where_m:
             w_raw = where_m.group(1).strip()
 
+            # Handle scalar subqueries (avg, max, min) in WHERE clause
+            if re.search(r'\(\s*select\s+', w_raw, re.I):
+                sub_match = re.search(r'\(\s*select\s+(avg|max|min)\s*\(\s*([\w\.]+)\s*\)\s+from\s+([\w\.]+)\s*\)', w_raw, re.I)
+                if not sub_match:
+                    return None  # Unsupported subquery pattern -> fail closed
+                agg_func = sub_match.group(1).lower()
+                col_name = sub_match.group(2).split('.')[-1]
+                if agg_func == 'avg':
+                    replacement = f"mean({col_name}, na.rm = TRUE)"
+                elif agg_func == 'max':
+                    replacement = f"max({col_name}, na.rm = TRUE)"
+                elif agg_func == 'min':
+                    replacement = f"min({col_name}, na.rm = TRUE)"
+                else:
+                    return None
+                w_raw = re.sub(r'\(\s*select\s+(?:avg|max|min)\s*\(\s*[\w\.]+\s*\)\s+from\s+[\w\.]+\s*\)', replacement, w_raw, flags=re.I)
+
             # Check if right-side JOIN KEY is checked for NULL / IS NOT NULL in WHERE clause
             if join_ds and join_type == "left_join" and right_alias and join_key:
                 is_not_null_pat = rf"\b({right_alias}|{join_ds})\.{join_key}\s+is\s+not\s+null\b"
@@ -527,6 +1472,8 @@ class RuleEngine:
                 w_raw = re.sub(r'\b[a-zA-Z_]\w*\.', '', w_raw)
                 w_raw = re.sub(r'(\w+)\s+is\s+not\s+null\b', r'!is.na(\1)', w_raw, flags=re.I)
                 w_raw = re.sub(r'(\w+)\s+is\s+null\b', r'is.na(\1)', w_raw, flags=re.I)
+                w_raw = self._normalize_sas_date_literals(w_raw)
+                w_raw = self._normalize_sas_char_missing(w_raw)
                 w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
                 w_raw = re.sub(r'\band\b', ' & ', w_raw, flags=re.I)
                 w_raw = re.sub(r'\bor\b', ' | ', w_raw, flags=re.I)
@@ -554,24 +1501,12 @@ class RuleEngine:
                 if item_clean == '*' or item_clean.lower().endswith('.*'):
                     select_cols = []
                     break
+                # Skip aggregate functions, they are handled elsewhere
                 if re.search(r'\b(count|sum|avg|mean|max|min|case)\b', item_clean, re.I):
                     continue
-                alias_m = re.search(r'^(.*?)\s+as\s+(\w+)$', item_clean, re.I) or re.search(r'^(.*?)\s+(\w+)$', item_clean, re.I)
-                if alias_m:
-                    col_expr = alias_m.group(1).strip()
-                    alias_var = alias_m.group(2).strip()
-                    if alias_var.lower() not in ("from", "where", "group", "by", "having", "order", "as"):
-                        col_name = re.sub(r'^\w+\.', '', col_expr)
-                        if col_name != alias_var:
-                            select_cols.append(f"{alias_var} = {col_name}")
-                        else:
-                            select_cols.append(col_name)
-                    else:
-                        col_name = re.sub(r'^\w+\.', '', item_clean)
-                        select_cols.append(col_name)
-                else:
-                    col_name = re.sub(r'^\w+\.', '', item_clean)
-                    select_cols.append(col_name)
+                # Remove any table prefixes
+                col_name = re.sub(r'^\w+\.', '', item_clean)
+                select_cols.append(col_name)
 
             for m in scalar_case_matches:
                 alias_name = m.group(4).strip()
@@ -634,9 +1569,8 @@ class RuleEngine:
                 lines.append(f"  dplyr::{join_type}({join_ds}, by = {join_on})")
             else:
                 lines.append(f"  dplyr::{join_type}({join_ds})")
-
-        if where_cond:
-            lines.append(f"  dplyr::filter({where_cond})")
+            if where_cond:
+                lines.append(f"  dplyr::filter({where_cond})")
 
         if mutate_items:
             m_str = ",\n    ".join(mutate_items)
@@ -645,6 +1579,8 @@ class RuleEngine:
         if select_cols:
             s_cols_str = ", ".join(select_cols)
             lines.append(f"  dplyr::select({s_cols_str})")
+            if where_cond:
+                lines.append(f"  dplyr::filter({where_cond})")
 
         if group_vars:
             g_str = ", ".join(group_vars)

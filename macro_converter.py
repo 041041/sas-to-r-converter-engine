@@ -627,6 +627,34 @@ class MacroParser:
                 'kind':      'while' if 'while' in m.group(0).lower() else 'until',
             })
 
+        # ── NESTED MACRO CALLS ──────────────────────────────────
+        for m in re.finditer(
+            r'%(\w+)\s*(?:\(([^)]*)\))?\s*;',
+            body, re.IGNORECASE
+        ):
+            call_name = m.group(1).upper()
+            if call_name not in self._MACRO_BUILTINS:
+                args_raw = m.group(2) or ""
+                kw_args = {}
+                pos_args = []
+                if args_raw.strip():
+                    for arg in args_raw.split(','):
+                        arg = arg.strip()
+                        if not arg:
+                            continue
+                        if '=' in arg:
+                            k, v = arg.split('=', 1)
+                            kw_args[k.strip().lstrip('&').lower()] = v.strip()
+                        else:
+                            pos_args.append(arg.strip())
+                _register(m, 'macro_call', {
+                    'target_macro': call_name.lower(),
+                    'raw_name': call_name,
+                    'kw_args': kw_args,
+                    'pos_args': pos_args,
+                    'args_raw': args_raw,
+                })
+
         # ── Fallback: unknown ────────────────────────────────────
         if not stmts:
             stmts.append(MacroStatement(kind='unknown', raw=body, span=(0, len(body))))
@@ -663,9 +691,32 @@ class RuleBasedConverter:
         self._llm_client = llm_client
 
     def convert(self, ir: MacroIR, dialect: str = "Modern R (dplyr)") -> tuple:
+        body_text = getattr(ir, 'body_raw', getattr(ir, 'raw_body', ''))
+        m_def = {'body': body_text, 'params': ir.params}
+        cls_res = classify_macro(ir.name, m_def)
+        if cls_res != 'PATH_B':
+            raise ValueError(f"ERROR: Non-PATH_B macro %{ir.name} (classified as {cls_res}) reached R-function generator boundary!")
+
         func_name    = ir.name.lower()
-        params_lower = [p.lower() for p in ir.params]
-        params_r     = ", ".join(params_lower)
+        params_clean = []
+        call_params = []
+        for p in ir.params:
+            p_str = str(p).strip().lstrip('&')
+            if '=' in p_str:
+                k, v = p_str.split('=', 1)
+                k_clean = k.strip().lower()
+                v_clean = v.strip()
+                if v_clean:
+                    params_clean.append(f'{k_clean} = "{v_clean}"')
+                else:
+                    params_clean.append(k_clean)
+                call_params.append(k_clean)
+            else:
+                k_clean = p_str.lower()
+                params_clean.append(k_clean)
+                call_params.append(k_clean)
+        params_r     = ", ".join(params_clean)
+        params_lower = call_params
         body_lines   = []
         total_conf   = 1.0
 
@@ -693,7 +744,7 @@ class RuleBasedConverter:
             f"}}\n"
         )
 
-        call_args = ", ".join(f'{p} = <value>' for p in params_lower)
+        call_args = ", ".join(f'{p} = <value>' for p in call_params)
         r_func += f"\n# Example call:\n# {func_name}({call_args})\n"
 
         return r_func, total_conf
@@ -712,13 +763,14 @@ class RuleBasedConverter:
             'do_while':       self._do_while,
             'let':            self._let_stmt,
             'call_symput':    self._call_symput,
+            'macro_call':     self._macro_call,
         }
         handler = dispatch.get(stmt.kind)
         if handler:
             if stmt.kind == 'proc_report':
                 llm = getattr(self, '_llm_client', None)
                 return handler(stmt, dialect, llm_client=llm)
-            if stmt.kind in ('if_else', 'do_loop', 'do_while', 'let', 'call_symput'):
+            if stmt.kind in ('if_else', 'do_loop', 'do_while', 'let', 'call_symput', 'macro_call'):
                 return handler(stmt, params, dialect)
             return handler(stmt, dialect)
 
@@ -1643,6 +1695,41 @@ class RuleBasedConverter:
         return r_lines, 0.85
 
 
+    def _macro_call(self, stmt: MacroStatement, params: list, dialect: str) -> tuple:
+        target = stmt.attrs['target_macro']
+        kw_args = stmt.attrs.get('kw_args', {})
+        pos_args = stmt.attrs.get('pos_args', [])
+
+        r_args = []
+        for arg in pos_args:
+            if arg.startswith('&'):
+                var_name = arg.lstrip('&').lower()
+                r_args.append(var_name)
+            elif arg.isdigit() or (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+                r_args.append(arg)
+            else:
+                if arg.lower() in [p.lower() for p in params]:
+                    r_args.append(arg.lower())
+                else:
+                    r_args.append(f'"{arg}"')
+
+        for k, v in kw_args.items():
+            k_clean = k.lower()
+            if v.startswith('&'):
+                v_clean = v.lstrip('&').lower()
+            elif v.isdigit() or (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                v_clean = v
+            else:
+                if v.lower() in [p.lower() for p in params]:
+                    v_clean = v.lower()
+                else:
+                    v_clean = f'"{v}"'
+            r_args.append(f"{k_clean} = {v_clean}")
+
+        call_code = f"result <- {target}({', '.join(r_args)})"
+        return [call_code], 0.90
+
+
 # ─────────────────────────────────────────────────────────────────
 # LLM CONVERTER (fallback only)
 # ─────────────────────────────────────────────────────────────────
@@ -1763,24 +1850,78 @@ class HybridMacroConverter:
         r_calls     = []
         warnings    = []
 
-        for name, macro in macro_definitions.items():
-            self.stats["total"] += 1
+        if not macro_definitions:
+            return {
+                "r_functions": "",
+                "r_calls": "",
+                "stats": dict(self.stats),
+                "warnings": warnings,
+            }
 
+        # Step 1: Parse all macro definitions into MacroIR and extract call graph
+        all_parsed_macros = {}
+        all_call_graph = {}
+        from dependency_graph import MacroCallNode, topological_sort_macros
+
+        for name, macro in macro_definitions.items():
+            name_upper = name.upper()
             ir = self.parser.parse(
-                name=name,
+                name=name_upper,
                 params=macro.get("params", []),
                 body=macro.get("body", "")
             )
+            all_parsed_macros[name_upper] = (macro, ir)
 
-            # Detect macros whose body is primarily calls to other macros
-            raw_body = macro.get("body", "")
-            body_macro_calls = re.findall(
-                r'%(\w+)\s*\(([^)]*)\)', raw_body, re.IGNORECASE
-            )
-            body_macro_calls = [
-                (n, a) for n, a in body_macro_calls
-                if n.upper() not in MacroParser._MACRO_BUILTINS
-            ]
+            called_set = []
+            for stmt in ir.statements:
+                if stmt.kind == 'macro_call':
+                    target = stmt.attrs['target_macro'].upper()
+                    called_set.append(target)
+            
+            all_call_graph[name_upper] = MacroCallNode(macro_name=name_upper, calls=called_set)
+
+        # Step 2: Check for Cycle Detection across all macro definitions
+        ordered_all_names, has_cycle, cycle_err = topological_sort_macros(all_call_graph)
+        if has_cycle:
+            warn_msg = f"⚠️ {cycle_err} — safe reject."
+            warnings.append(warn_msg)
+            return {
+                "r_functions": f"# TODO: Manual review required for macro definitions due to dependency cycle: {cycle_err}",
+                "r_calls": "",
+                "stats": {"total": len(macro_definitions), "cached": 0, "rule_based": 0, "llm": 0, "failed": len(macro_definitions)},
+                "warnings": warnings,
+                "classifications": {m: "SAFE_REJECT" for m in macro_definitions},
+            }
+
+        # Filter to ONLY PATH_B macros for R function generation
+        parsed_macros = {
+            m: val for m, val in all_parsed_macros.items()
+            if classify_macro(m, val[0], all_macro_defs=macro_definitions) == 'PATH_B'
+        }
+        macro_call_graph = {m: node for m, node in all_call_graph.items() if m in parsed_macros}
+
+        # Step 3: Check for Unknown Dependencies (among PATH_B macros)
+        known_macro_names = set(all_parsed_macros.keys())
+        for name_upper, node in macro_call_graph.items():
+            for target in node.calls:
+                if target not in known_macro_names and target not in MacroParser._MACRO_BUILTINS:
+                    warn_msg = f"⚠️ Macro %{name_upper} calls unknown macro %{target} — safe reject."
+                    warnings.append(warn_msg)
+                    return {
+                        "r_functions": f"# TODO: Manual review required for macro definitions due to unresolved dependency: {target}",
+                        "r_calls": "",
+                        "stats": {"total": len(macro_definitions), "cached": 0, "rule_based": 0, "llm": 0, "failed": len(macro_definitions)},
+                        "warnings": warnings,
+                    }
+
+        # Step 4: Convert PATH_B macros in topological order
+        ordered_macro_names, _, _ = topological_sort_macros(macro_call_graph)
+        for name_upper in ordered_macro_names:
+            if name_upper not in parsed_macros:
+                continue
+            macro, ir = parsed_macros[name_upper]
+            self.stats["total"] += 1
+            name = name_upper
 
             # Check cache first
             cached = self.cache.get(ir, dialect)
@@ -1793,75 +1934,12 @@ class HybridMacroConverter:
             # Score complexity
             score, confidence, reasons = self.scorer.score(ir)
 
-            # Body is mainly inter-macro calls → generate chained function calls
-            if body_macro_calls and len(ir.statements) <= 1:
-                r_lines = []
-                prev_result = None
-                for i, (call_name, call_args) in enumerate(body_macro_calls):
-                    r_args = []
-                    for arg in call_args.split(','):
-                        arg = arg.strip()
-                        if '=' in arg:
-                            k, v = arg.split('=', 1)
-                            k_clean = k.strip().lstrip('&').lower()
-                            v_raw   = v.strip()
-                            # Detect &param._suffix patterns (e.g. &ds._filtered)
-                            suffix_m = re.match(r'&(\w+)\.(\w+)', v_raw)
-                            if suffix_m:
-                                v_clean = f'{suffix_m.group(1).lower()}_{suffix_m.group(2).lower()}'
-                            else:
-                                v_clean = v_raw.lstrip('&').lower()
-                            # Thread dataset from previous step
-                            if prev_result and k_clean in ('ds', 'data', 'df'):
-                                r_args.append(f"{k_clean} = {prev_result}")
-                            else:
-                                # Normalise ds → df for known functions
-                                if call_name.lower() == "filter_data" and k_clean == "ds":
-                                    k_clean = "df"
-                                r_args.append(f"{k_clean} = {v_clean}")
-                        elif arg:
-                            r_args.append(arg.lstrip('&').lower())
-                    is_last    = (i == len(body_macro_calls) - 1)
-                    result_var = "result" if is_last else f"step{i+1}_result"
-                    prev_result = result_var
-                    r_lines.append(
-                        f"  {result_var} <- {call_name.lower()}("
-                        + ", ".join(r_args) + ")"
-                    )
-                r_lines.append(
-                    "  # NOTE: Review chaining — ensure correct dataset "
-                    "passed to each function"
-                )
-                r_lines.append("  return(result)")
-                params_r  = ", ".join(p.lower() for p in ir.params)
-                func_name = name.lower()
-                r_code = (
-                    f"# SAS macro %{name} converted to R function\n"
-                    f"{func_name} <- function({params_r}) {{\n"
-                    + "\n".join(r_lines) + "\n"
-                    f"}}\n"
-                    f"\n# Example call:\n"
-                    f"# {func_name}({', '.join(p.lower()+'=<value>' for p in ir.params)})\n"
-                )
-                method       = "rule-based (macro calls)"
-                actual_conf  = 0.90
-                self.stats["rule_based"] += 1
-                self.cache.put(ir, dialect, {"r_code": r_code, "warnings": []})
-                r_functions.append(
-                    f"# {'─'*60}\n"
-                    f"# Macro: %{name} | Method: {method} | Confidence: {actual_conf:.0%}\n"
-                    f"# {'─'*60}\n"
-                    + r_code
-                )
-                continue
-
             # Choose converter
             if confidence >= self.CONFIDENCE_THRESHOLD or self.llm is None:
                 r_code, actual_conf = self.rules.convert(ir, dialect)
                 method = "rule-based"
                 self.stats["rule_based"] += 1
 
-                # If rule-based confidence still too low and LLM available → fallback
                 if actual_conf < self.CONFIDENCE_THRESHOLD and self.llm is not None:
                     r_code, actual_conf = self.llm.convert(ir, dialect)
                     method = "LLM (rule fallback)"
@@ -1892,11 +1970,11 @@ class HybridMacroConverter:
 
             if actual_conf < 0.5:
                 warnings.append(
-                    f"⚠️  Low confidence ({actual_conf:.0%}) converting %{name} — "
+                    f"⚠️ Low confidence ({actual_conf:.0%}) converting %{name} — "
                     f"review generated R function carefully."
                 )
 
-            self.cache.put(ir, dialect, {"r_code": r_code, "warnings": warnings[-1:]})
+            self.cache.put(ir, dialect, {"r_code": r_code, "warnings": warnings[-1:] if warnings else []})
             r_functions.append(r_code)
 
         # Convert macro call strings → R function calls
@@ -1905,11 +1983,17 @@ class HybridMacroConverter:
             if r_call:
                 r_calls.append(r_call)
 
+        classifications = {
+            m_name: classify_macro(m_name, m_def, all_macro_defs=macro_definitions)
+            for m_name, m_def in macro_definitions.items()
+        }
+
         return {
-            "r_functions": "\n".join(r_functions),
+            "r_functions": "\n\n".join(r_functions),
             "r_calls":     "\n".join(r_calls),
             "stats":       dict(self.stats),
             "warnings":    warnings,
+            "classifications": classifications,
         }
 
     def _convert_call(self, call: str, macro_defs: dict) -> Optional[str]:
@@ -1934,6 +2018,108 @@ class HybridMacroConverter:
                 r_args.append(arg.lstrip('&').lower())
 
         return f"{name.lower()}({', '.join(r_args)})"
+
+
+def classify_macro(
+    macro_name: str,
+    macro_def: dict,
+    macro_calls: list = None,
+    all_macro_defs: dict = None,
+    visited: set = None
+) -> str:
+    """
+    Deterministically classifies a SAS macro into:
+      - 'PATH_A': Compile-time / template macro (expanded compile-time prior to DATA/PROC step conversion)
+      - 'PATH_B': Reusable parameterized R utility function candidate
+      - 'SAFE_REJECT': Unresolvable, malformed, or unsupported macro structure
+    """
+    if visited is None:
+        visited = set()
+
+    macro_name_upper = macro_name.upper()
+    if macro_name_upper in visited:
+        return 'SAFE_REJECT'
+
+    visited.add(macro_name_upper)
+
+    if all_macro_defs:
+        all_macro_defs = {k.upper(): v for k, v in all_macro_defs.items()}
+
+    body = macro_def.get('body', '')
+    params = macro_def.get('params', [])
+
+    # 1. Reject unsupported macro features
+    unsupported = [
+        r'%eval\b', r'%sysevalf\b', r'%nrstr\b', r'%bquote\b',
+        r'%nrbquote\b', r'%superq\b', r'%do\s+while\b', r'%do\s+until\b',
+        r'call\s+symput', r'proc\s+sql\s+into'
+    ]
+    for pat in unsupported:
+        if re.search(pat, body, re.IGNORECASE):
+            return 'SAFE_REJECT'
+
+    # Check multi-level indirection
+    if re.search(r'(?:&&){2,}', body) or re.search(r'&{3,}', body):
+        return 'SAFE_REJECT'
+
+    # Guard: unsupported %sysfunc calls (only %sysfunc(today()) and %sysfunc(date()) allowed)
+    if re.search(r'%sysfunc\s*\(\s*(?!today|date)', body, re.IGNORECASE):
+        return 'SAFE_REJECT'
+
+    # 2. Check for Path A (Compile-time / template macro indicators: %do loops, && indirection, multi-variable dynamic dataset concats, nested %macro defs)
+    def _has_multi_amp_data_stmt(b_text):
+        for stmt_line in b_text.split(';'):
+            if re.search(r'^\s*data\b', stmt_line, re.IGNORECASE):
+                if len(re.findall(r'&\w+', stmt_line)) >= 2:
+                    return True
+        return False
+
+    has_do_loop = bool(re.search(r'%do\b', body, re.IGNORECASE))
+    has_macro_control_flow = bool(re.search(r'%\b(?:if|then|else|do)\b', body, re.IGNORECASE))
+    is_path_a_dyn_ds = _has_multi_amp_data_stmt(body)
+    single_res = 'PATH_A' if (has_macro_control_flow or has_do_loop or re.search(r'&&\w+', body) or is_path_a_dyn_ds) else None
+
+    if single_res is None:
+        # 3. Check for Path B (Reusable Parameterized Utility Macro)
+        if params:
+            single_res = 'PATH_B'
+
+    if single_res is None:
+        single_res = 'PATH_A'
+
+    if not all_macro_defs:
+        return single_res
+
+    # Find sub-macros defined or invoked inside body
+    sub_macros = set()
+    for m in re.finditer(r'%macro\s+(\w+)', body, re.IGNORECASE):
+        sub_macros.add(m.group(1).upper())
+    for m in re.finditer(r'%(\w+)', body, re.IGNORECASE):
+        sub_name = m.group(1).upper()
+        if sub_name not in ('DO', 'END', 'IF', 'THEN', 'ELSE', 'LET', 'PUT', 'GLOBAL', 'LOCAL', 'MACRO', 'MEND', 'SYSFUNC'):
+            if sub_name in all_macro_defs:
+                sub_macros.add(sub_name)
+
+    # Propagate PATH_A / SAFE_REJECT requirements through dependencies
+    has_path_a = (single_res == 'PATH_A')
+    for sub_name in sub_macros:
+        if sub_name in all_macro_defs and sub_name != macro_name_upper:
+            sub_res = classify_macro(
+                sub_name,
+                all_macro_defs[sub_name],
+                macro_calls=None,
+                all_macro_defs=all_macro_defs,
+                visited=set(visited)
+            )
+            if sub_res == 'SAFE_REJECT':
+                return 'SAFE_REJECT'
+            elif sub_res == 'PATH_A':
+                has_path_a = True
+
+    if has_path_a:
+        return 'PATH_A'
+
+    return single_res
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1998,22 +2184,67 @@ def parse_sas_source(sas_text: str) -> dict:
 
     macro_defs = {}
 
-    # Extract all %macro...%mend blocks (name on %mend is optional)
-    macro_pat = re.compile(
-        r'%macro\s+(\w+)\s*'           # %macro name
-        r'(?:\(([^)]*)\))?\s*;'        # optional (params);
-        r'(.*?)'                       # body
-        r'%mend(?:\s+\1)?\s*;',        # %mend  or  %mend name;
-        re.IGNORECASE | re.DOTALL
-    )
+    def _extract_defs(code_text):
+        pos = 0
+        n = len(code_text)
+        token_pat = re.compile(r'(%macro\b|%mend(?:\s+\w+)?\s*;)', re.IGNORECASE)
 
-    for m in macro_pat.finditer(sas_clean):
-        name       = m.group(1).strip().upper()
-        params_raw = m.group(2) or ''
-        body       = m.group(3).strip()
-        params     = [p.strip().lstrip('&')
-                      for p in params_raw.split(',') if p.strip()]
-        macro_defs[name] = {'params': params, 'body': body}
+        while pos < n:
+            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code_text[pos:], re.IGNORECASE)
+            if not m:
+                break
+            macro_name = m.group(1).strip().upper()
+            params_raw = m.group(2) or ''
+            header_end = pos + m.end()
+
+            depth = 1
+            cur = header_end
+            body_end = None
+            block_end = None
+
+            while cur < n:
+                tm = token_pat.search(code_text, cur)
+                if not tm:
+                    break
+                tok = tm.group(1).upper()
+                if tok.startswith('%MACRO'):
+                    depth += 1
+                elif tok.startswith('%MEND'):
+                    depth -= 1
+                    if depth == 0:
+                        body_end = tm.start()
+                        block_end = tm.end()
+                        break
+                cur = tm.end()
+
+            if depth != 0 or block_end is None:
+                pos = header_end
+                continue
+
+            body = code_text[header_end:body_end].strip()
+            params = []
+            if params_raw:
+                for p in params_raw.split(','):
+                    p_clean = p.strip().lstrip('&')
+                    if p_clean:
+                        if '=' in p_clean:
+                            pname, pdef = p_clean.split('=', 1)
+                            pname = pname.strip()
+                            pdef = pdef.strip()
+                            if pdef:
+                                params.append(f"{pname}={pdef}")
+                            else:
+                                params.append(pname)
+                        else:
+                            params.append(p_clean)
+            macro_defs[macro_name] = {'params': params, 'body': body}
+
+            if re.search(r'%macro\b', body, re.IGNORECASE):
+                _extract_defs(body)
+
+            pos = block_end
+
+    _extract_defs(sas_clean)
 
     # If no %macro blocks found, treat the whole file as a single anonymous macro
     # so that bare PROC/DATA steps are still converted.
@@ -2027,7 +2258,8 @@ def parse_sas_source(sas_text: str) -> dict:
 
     # Extract top-level macro calls (%name(...) outside any macro body)
     # Remove all macro definition bodies first so we only get call-site calls
-    sas_no_defs = macro_pat.sub('', sas_clean)
+    from macro_processor import SASMacroProcessor
+    sas_no_defs = SASMacroProcessor()._remove_macro_definitions(sas_clean)
     call_pat    = re.compile(r'%(\w+)\s*\([^)]*\)', re.IGNORECASE)
     builtins    = MacroParser._MACRO_BUILTINS
     macro_calls = [

@@ -36,6 +36,25 @@ def _normalize_whitespace(code: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
+# MACRO SCOPE FRAME
+# ─────────────────────────────────────────────────────────────────
+
+class MacroFrame:
+    """Represents a single macro invocation scope frame."""
+    def __init__(self, name: str, is_global: bool = False):
+        self.name = name.upper()
+        self.is_global = is_global
+        self.vars: dict[str, str] = {}
+        self.local_declared: set[str] = set()
+
+    def get_var(self, name: str) -> str | None:
+        return self.vars.get(name.upper())
+
+    def set_var(self, name: str, val: str):
+        self.vars[name.upper()] = val
+
+
+# ─────────────────────────────────────────────────────────────────
 # MAIN PROCESSOR CLASS
 # ─────────────────────────────────────────────────────────────────
 
@@ -51,6 +70,32 @@ class SASMacroProcessor:
         self.let_vars: dict = {}        # {NAME: value}
         self.sql_var_hints: list = []   # hints for LLM
         self.warnings: list = []        # non-fatal issues
+        self.global_frame = MacroFrame("GLOBAL", is_global=True)
+        self.frame_stack: list[MacroFrame] = [self.global_frame]
+
+    def _get_active_vars(self, extra_vars: dict = None) -> dict[str, str]:
+        active = {}
+        for frame in self.frame_stack:
+            active.update(frame.vars)
+        if extra_vars:
+            active.update(extra_vars)
+        return active
+
+    def _set_var_in_scope(self, name: str, val: str):
+        name = name.upper()
+        curr = self.frame_stack[-1]
+        if name in curr.local_declared or name in curr.vars:
+            curr.vars[name] = val
+            return
+
+        for frame in reversed(self.frame_stack):
+            if name in frame.vars:
+                frame.vars[name] = val
+                return
+
+        curr.vars[name] = val
+        if curr.is_global:
+            self.let_vars[name] = val
 
     # ── PUBLIC ENTRY POINT ────────────────────────────────────────
 
@@ -66,7 +111,9 @@ class SASMacroProcessor:
             (expanded_code, warnings, sql_hints)
         """
         self.macro_library = {}
-        self.let_vars = {}
+        self.global_frame = MacroFrame("GLOBAL", is_global=True)
+        self.frame_stack = [self.global_frame]
+        self.let_vars = self.global_frame.vars
         self.sql_var_hints = []
         self.warnings = []
 
@@ -77,33 +124,179 @@ class SASMacroProcessor:
                 combined += _strip_comments(f) + "\n"
         combined += _strip_comments(sas_code)
 
-        # 2. Extract %let variables (global)
-        self._parse_let_variables(combined)
-
-        # 3. Extract all macro definitions
+        # 2. Extract all macro definitions first
         self._parse_macro_definitions(combined)
 
-        # 4. Remove macro definitions from code (keep only calls + non-macro code)
-        code = self._remove_macro_definitions(combined)
+        # 3. Strip top-level macro definition blocks from code
+        code_without_defs = self._remove_macro_definitions(combined)
+        code_without_defs = self._parse_scope_statements(code_without_defs)
 
-        # 5. Substitute global %let variables
-        code = self._substitute_let_vars(code, self.let_vars)
+        # 4. Extract top-level %let variables (outside macro definitions)
+        self._parse_let_variables(code_without_defs)
 
-        # 6. Expand numeric %do loops at top level
-        code = self._expand_do_loops(code)
+        # 5. Expand %do loops
+        code_do = self._expand_do_loops(code_without_defs)
 
-        # 7. Detect SQL-generated macro vars (add hints, can't fully resolve)
-        self._detect_sql_macro_vars(code)
+        # 7. Detect PROC SQL INTO: macro vars
+        self._detect_sql_macro_vars(code_do)
 
-        # 8. Expand all macro calls (recursive)
-        code = self._expand_macro_calls(code, depth=0)
+        # 8. Recursively expand macro calls
+        expanded = self._expand_macro_calls(code_do)
 
-        # 9. Clean up residual macro artifacts
-        code = self._cleanup(code)
+        # 8.5 Substitute global macro variables updated during macro execution
+        expanded = self._substitute_let_vars(expanded, self._get_active_vars())
+        expanded = self._evaluate_if_else(expanded, self._get_active_vars())
 
-        return _normalize_whitespace(code), self.warnings, self.sql_var_hints
+        # 9. Final cleanup
+        final_code = self._cleanup(expanded)
+
+        return (final_code, self.warnings, self.sql_var_hints)
+
+    def _parse_scope_statements(self, code: str) -> str:
+        """Parse %LOCAL and %GLOBAL variable declarations."""
+        curr = self.frame_stack[-1]
+        for lm in re.finditer(r'%local\s+([^;]+);', code, re.IGNORECASE):
+            raw_vars = lm.group(1).strip()
+            for v in raw_vars.split():
+                v_name = v.strip().lstrip('&').upper()
+                if v_name:
+                    curr.local_declared.add(v_name)
+                    curr.vars[v_name] = curr.vars.get(v_name, "")
+
+        for gm in re.finditer(r'%global\s+([^;]+);', code, re.IGNORECASE):
+            raw_vars = gm.group(1).strip()
+            for v in raw_vars.split():
+                v_name = v.strip().lstrip('&').upper()
+                if v_name:
+                    self.global_frame.vars[v_name] = self.global_frame.vars.get(v_name, "")
+
+        return re.sub(r'%(?:local|global)\s+[^;]+;', '', code, flags=re.IGNORECASE)
 
     # ── STEP 2: PARSE %LET ───────────────────────────────────────
+
+    def _evaluate_bounded_macro_functions(self, expr: str, let_dict: dict = None) -> str | None:
+        """
+        Evaluates bounded static SAS macro string & date functions:
+          - %sysfunc(today()) / %sysfunc(date()) -> "Sys.Date()"
+          - %substr(str, start, [len])
+          - %scan(str, n, [delimiter])
+          - %index(str, substr)
+          - %length(str)
+        Returns evaluated string or None if un-evaluable / unsupported.
+        """
+        if let_dict is None:
+            let_dict = self._get_active_vars()
+
+        # Reject unsupported macro functions or indirect references
+        if '&&' in expr:
+            return None
+
+        # Reject unsupported macro quoting / eval functions
+        unsupported = [
+            r'%eval\b', r'%sysevalf\b', r'%esevalf\b',
+            r'%nrstr\b', r'%bquote\b', r'%nrbquote\b', r'%superq\b'
+        ]
+        for pat in unsupported:
+            if re.search(pat, expr, re.I):
+                return None
+
+        # Substitute known macro variables first
+        for _ in range(5):
+            orig = expr
+            for k, v in let_dict.items():
+                if k:
+                    expr = re.sub(rf'&{k}\.', str(v), expr, flags=re.I)
+                    expr = re.sub(rf'&{k}\b', str(v), expr, flags=re.I)
+            if expr == orig:
+                break
+
+        # If unresolved macro variable remains, return None
+        if re.search(r'&\w+', expr):
+            return None
+
+        # Evaluate nested macro calls from innermost to outermost (max 10 passes)
+        for _ in range(10):
+            # 1. %SYSFUNC(today() [, format]) or %SYSFUNC(date() [, format])
+            m_sys = re.search(r'%sysfunc\s*\(\s*(today|date)\s*\(\s*\)\s*(?:,\s*[^)]+)?\s*\)', expr, re.I)
+            if m_sys:
+                expr = expr[:m_sys.start()] + "Sys.Date()" + expr[m_sys.end():]
+                continue
+
+            # Guard: any other %sysfunc call -> SAFE REJECT
+            if re.search(r'%sysfunc\b', expr, re.I):
+                return None
+
+            # 2. %LENGTH(text)
+            m_len = re.search(r'%length\s*\(\s*([^()]*)\s*\)', expr, re.I)
+            if m_len:
+                raw_text = m_len.group(1).strip("'\"")
+                expr = expr[:m_len.start()] + str(len(raw_text)) + expr[m_len.end():]
+                continue
+
+            # 3. %INDEX(text, substr)
+            m_idx = re.search(r'%index\s*\(\s*([^(),]+)\s*,\s*([^()]+)\s*\)', expr, re.I)
+            if m_idx:
+                src = m_idx.group(1).strip().strip("'\"")
+                sub = m_idx.group(2).strip().strip("'\"")
+                found_pos = src.find(sub)
+                res_idx = (found_pos + 1) if found_pos != -1 else 0
+                expr = expr[:m_idx.start()] + str(res_idx) + expr[m_idx.end():]
+                continue
+
+            # 4. %SUBSTR(text, start [, len])
+            m_sub = re.search(r'%substr\s*\(\s*([^(),]+)\s*,\s*(\d+)\s*(?:,\s*(\d+))?\s*\)', expr, re.I)
+            if m_sub:
+                src = m_sub.group(1).strip().strip("'\"")
+                start = int(m_sub.group(2))
+                length = int(m_sub.group(3)) if m_sub.group(3) else None
+                if start < 1 or start > len(src) + 1:
+                    return None
+                if length is not None:
+                    if length < 0:
+                        return None
+                    res_str = src[start - 1 : start - 1 + length]
+                else:
+                    res_str = src[start - 1 :]
+                expr = expr[:m_sub.start()] + res_str + expr[m_sub.end():]
+                continue
+
+            # 5. %SCAN(text, n [, delim])
+            m_scan = re.search(r'%scan\s*\(\s*([^(),]+)\s*,\s*(\d+)\s*(?:,\s*(%str\([^)]*\)|[^(),]+))?\s*\)', expr, re.I)
+            if m_scan:
+                src = m_scan.group(1).strip().strip("'\"")
+                n_idx = int(m_scan.group(2))
+                raw_delim = m_scan.group(3) if m_scan.group(3) else ""
+                if raw_delim:
+                    raw_delim = raw_delim.strip()
+                    m_str_delim = re.match(r'^%str\s*\(\s*(.*?)\s*\)$', raw_delim, re.I)
+                    if m_str_delim:
+                        delim_char = m_str_delim.group(1).strip("'\"")
+                    else:
+                        delim_char = raw_delim.strip("'\"")
+                else:
+                    delim_char = None
+
+                if delim_char:
+                    tokens = [t for t in src.split(delim_char) if t]
+                else:
+                    tokens = src.split()
+
+                if 1 <= n_idx <= len(tokens):
+                    res_scan = tokens[n_idx - 1]
+                else:
+                    res_scan = ""
+
+                expr = expr[:m_scan.start()] + res_scan + expr[m_scan.end():]
+                continue
+
+            # No more macro functions found
+            break
+
+        # If any un-expanded macro function call remains (%something), return None
+        if re.search(r'%\w+', expr):
+            return None
+
+        return expr
 
     def _parse_let_variables(self, code: str):
         """Extract all %let name = value; statements."""
@@ -114,67 +307,222 @@ class SASMacroProcessor:
         for m in pattern.finditer(code):
             name  = m.group(1).strip().upper()
             value = m.group(2).strip()
-            self.let_vars[name] = value
+            if '&&' in value:
+                val_res, ok = self._resolve_bounded_indirect_reference(value, self._get_active_vars())
+                if ok:
+                    value = val_res
+                else:
+                    self.warnings.append("⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.")
+            if re.search(r'%\w+', value):
+                eval_val = self._evaluate_bounded_macro_functions(value, self._get_active_vars())
+                if eval_val is not None:
+                    value = eval_val
+                elif '&&' not in value:
+                    self.warnings.append(
+                        f"⚠️ Un-evaluable or unsupported macro function in %LET {name} = {value} — left unexpanded."
+                    )
+            self._set_var_in_scope(name, value)
 
     # ── STEP 3: PARSE MACRO DEFINITIONS ─────────────────────────
 
     def _parse_macro_definitions(self, code: str):
-        """
-        Extract %macro name(params); body %mend; blocks.
-        Supports optional macro name after %mend.
-        """
-        pattern = re.compile(
-            r'%macro\s+(\w+)\s*(?:\(([^)]*)\))?\s*;(.*?)%mend(?:\s+\w+)?\s*;',
-            re.IGNORECASE | re.DOTALL
-        )
-        for m in pattern.finditer(code):
-            name   = m.group(1).strip().upper()
+        """Extract %macro name(params); body %mend; blocks using balanced nesting detection."""
+        pos = 0
+        n = len(code)
+        while pos < n:
+            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code[pos:], re.IGNORECASE)
+            if not m:
+                break
+
+            header_start = pos + m.start()
+            header_end = pos + m.end()
+            macro_name = m.group(1).strip().upper()
             params_raw = m.group(2) or ""
-            body   = m.group(3).strip()
 
-            # Parse parameters (handle default values: param=default)
-            params = []
-            for p in params_raw.split(','):
-                p = p.strip()
-                if not p:
-                    continue
-                param_name = p.split('=')[0].strip().lstrip('&')
-                params.append(param_name.upper())
+            depth = 1
+            cur = header_end
+            body_start = header_end
+            body_end = None
+            block_end = None
 
-            self.macro_library[name] = {
+            token_pat = re.compile(r'(%macro\b|%mend(?:\s+\w+)?\s*;)', re.IGNORECASE)
+
+            while cur < n:
+                tm = token_pat.search(code, cur)
+                if not tm:
+                    break
+                tok = tm.group(1).upper()
+                if tok.startswith('%MACRO'):
+                    depth += 1
+                elif tok.startswith('%MEND'):
+                    depth -= 1
+                    if depth == 0:
+                        body_end = tm.start()
+                        block_end = tm.end()
+                        break
+                cur = tm.end()
+
+            if depth != 0 or block_end is None:
+                self.warnings.append(f"⚠️ Malformed or unclosed %MACRO definition for %{macro_name} — safe reject.")
+                pos = header_end
+                continue
+
+            body = code[body_start:body_end].strip()
+
+            params: list[str] = []
+            defaults: dict[str, str] = {}
+            if params_raw.strip():
+                for p in params_raw.split(','):
+                    p = p.strip()
+                    if not p:
+                        continue
+                    if '=' in p:
+                        param_name, default_val = p.split('=', 1)
+                        param_name = param_name.strip().lstrip('&').upper()
+                        defaults[param_name] = default_val.strip()
+                    else:
+                        param_name = p.lstrip('&').upper()
+                    params.append(param_name)
+
+            self.macro_library[macro_name] = {
                 "params": params,
-                "body":   body,
+                "defaults": defaults,
+                "body": body,
             }
+
+            # Recursively extract nested macro definitions inside body
+            if re.search(r'%macro\b', body, re.IGNORECASE):
+                self._parse_macro_definitions(body)
+
+            pos = block_end
 
     # ── STEP 4: REMOVE MACRO DEFINITIONS ────────────────────────
 
     def _remove_macro_definitions(self, code: str) -> str:
-        """Strip %macro...%mend blocks from code."""
-        return re.sub(
-            r'%macro\s+\w+\s*(?:\([^)]*\))?\s*;.*?%mend(?:\s+\w+)?\s*;',
-            '',
-            code,
-            flags=re.IGNORECASE | re.DOTALL
-        )
+        """Strip top-level %macro...%mend blocks from code using balanced block scanning."""
+        pos = 0
+        result = []
+        n = len(code)
+        last_idx = 0
+
+        while pos < n:
+            m = re.search(r'%macro\s+(\w+)\s*(?:\((.*?)\))?\s*;', code[pos:], re.IGNORECASE)
+            if not m:
+                result.append(code[last_idx:])
+                break
+
+            header_start = pos + m.start()
+            header_end = pos + m.end()
+
+            depth = 1
+            cur = header_end
+            block_end = None
+
+            token_pat = re.compile(r'(%macro\b|%mend(?:\s+\w+)?\s*;)', re.IGNORECASE)
+
+            while cur < n:
+                tm = token_pat.search(code, cur)
+                if not tm:
+                    break
+                tok = tm.group(1).upper()
+                if tok.startswith('%MACRO'):
+                    depth += 1
+                elif tok.startswith('%MEND'):
+                    depth -= 1
+                    if depth == 0:
+                        block_end = tm.end()
+                        break
+                cur = tm.end()
+
+            if block_end is None:
+                result.append(code[last_idx:])
+                break
+
+            result.append(code[last_idx:header_start])
+            last_idx = block_end
+            pos = block_end
+
+        return "".join(result)
 
     # ── STEP 5: SUBSTITUTE %LET VARS ────────────────────────────
 
     def _substitute_let_vars(self, code: str, let_dict: dict) -> str:
         """Replace &var and &var. references with their values, handling indirect && references."""
+        has_indirect = '&&' in code
         for _ in range(5):
             orig_code = code
             for name, value in let_dict.items():
                 if not name:
                     continue
                 # &NAME. (with dot separator)
-                code = re.sub(rf'&{name}\.', str(value), code, flags=re.IGNORECASE)
+                code = re.sub(rf'(?<!&)&{name}\.', str(value), code, flags=re.IGNORECASE)
                 # &NAME (without dot)
-                code = re.sub(rf'&{name}\b', str(value), code, flags=re.IGNORECASE)
-            # Collapse && -> &
-            code = re.sub(r'&&', '&', code)
+                code = re.sub(rf'(?<!&)&{name}\b', str(value), code, flags=re.IGNORECASE)
             if code == orig_code:
                 break
         return code
+
+    # ── HELPER: RESOLVE BOUNDED INDIRECT REFERENCES ─────────────
+
+    def _resolve_bounded_indirect_reference(self, code_str: str, iter_vars: dict, active_iter: str = None) -> tuple[str, bool]:
+        """
+        Resolves bounded SAS indirect macro variable references of the form:
+           &&<base>&<iter>
+        when <iter> matches the active %DO loop iterator and target variable <base><iter_val>
+        exists in the symbol table.
+
+        Returns (resolved_code, success_flag). If failed / invalid, returns (code_str, False).
+        """
+        # 1. Reject multi-level indirection (&&&&) or 3+ consecutive ampersands
+        if re.search(r'(?:&&){2,}', code_str) or re.search(r'&{3,}', code_str):
+            self.warnings.append("⚠️ Multi-level indirect macro reference (&&&&) is unsupported — safe reject.")
+            return code_str, False
+
+        # 2. Reject unsupported sysfunc or dynamic calls with &&
+        if re.search(r'%sysfunc\s*\(\s*\w+\s*\([^)]*&&', code_str, re.I):
+            self.warnings.append("⚠️ Unsupported %SYSFUNC with indirect reference — safe reject.")
+            return code_str, False
+
+        # Find all &&<base>&<iter> or &&<base><digit> patterns
+        pattern = re.compile(r'&&\s*([A-Za-z_]\w*)\s*&([A-Za-z_]\w*)\.?', re.IGNORECASE)
+        pattern_digit = re.compile(r'&&\s*([A-Za-z_]\w*?)(\d+)\b', re.IGNORECASE)
+
+        failed = False
+        def replace_indirect(m):
+            nonlocal failed
+            base_name = m.group(1).upper()
+            iter_name = m.group(2).upper()
+
+            # Check if iter_name matches active_iter and is in iter_vars
+            if not active_iter or iter_name not in iter_vars or iter_name != active_iter.upper():
+                self.warnings.append(f"⚠️ Unknown or inactive loop iterator &{iter_name} in indirect reference — safe reject.")
+                failed = True
+                return m.group(0)
+
+            iter_val = iter_vars[iter_name]
+            target_var_name = f"{base_name}{iter_val}".upper()
+
+            if target_var_name not in iter_vars:
+                self.warnings.append(f"⚠️ Missing target macro variable &{target_var_name} for indirect reference — safe reject.")
+                failed = True
+                return m.group(0)
+
+            resolved_val = iter_vars[target_var_name]
+            return str(resolved_val)
+
+        def replace_indirect_digit(m):
+            base_name = m.group(1).upper()
+            digit_val = m.group(2)
+            target_var_name = f"{base_name}{digit_val}".upper()
+            if target_var_name in iter_vars:
+                return str(iter_vars[target_var_name])
+            return m.group(0)
+
+        res_code = pattern.sub(replace_indirect, code_str)
+        res_code = pattern_digit.sub(replace_indirect_digit, res_code)
+        if failed:
+            return code_str, False
+        return res_code, True
 
     # ── STEP 6: EXPAND %DO LOOPS ────────────────────────────────
 
@@ -184,7 +532,6 @@ class SASMacroProcessor:
         Handles nested loops recursively using balanced block extraction and substitutes loop-local %let statements.
         """
         vars_to_sub = {**self.let_vars, **(local_vars or {})}
-        code_str = self._substitute_let_vars(code_str, vars_to_sub)
 
         pos = 0
         while pos < len(code_str):
@@ -217,9 +564,14 @@ class SASMacroProcessor:
                     let_name = lm.group(1).upper()
                     let_val_raw = lm.group(2).strip()
                     let_val_sub = self._substitute_let_vars(let_val_raw, iter_vars)
+                    if '&&' in let_val_sub:
+                        let_val_sub, _ = self._resolve_bounded_indirect_reference(let_val_sub, iter_vars, var)
                     iter_vars[let_name] = let_val_sub
 
                 iteration = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', iteration, flags=re.IGNORECASE)
+                if '&&' in iteration:
+                    iteration, _ = self._resolve_bounded_indirect_reference(iteration, iter_vars, var)
+
                 iteration = self._substitute_let_vars(iteration, iter_vars)
                 iteration = self._evaluate_if_else(iteration, iter_vars)
                 expanded += iteration + "\n"
@@ -254,11 +606,14 @@ class SASMacroProcessor:
 
     # ── STEP 8: EXPAND MACRO CALLS ──────────────────────────────
 
-    def _expand_macro_calls(self, code: str, depth: int, local_vars: dict = None) -> str:
+    def _expand_macro_calls(self, code: str, depth: int = 0, local_vars: dict = None, active_macros: set = None) -> str:
         """
         Recursively expand macro calls in code.
         Handles: %macro_name; and %macro_name(args);
         """
+        if active_macros is None:
+            active_macros = set()
+
         if depth > self.MAX_DEPTH:
             self.warnings.append(
                 "⚠️ Maximum macro recursion depth reached. "
@@ -293,6 +648,12 @@ class SASMacroProcessor:
                 if name in BUILTINS:
                     return match.group(0)
 
+                if name in active_macros:
+                    self.warnings.append(
+                        f"⚠️ Recursive call to macro %{name} detected — safe reject."
+                    )
+                    return match.group(0)
+
                 if name not in self.macro_library:
                     # Try dynamic resolution
                     resolved = self._try_resolve_dynamic_name(name)
@@ -306,64 +667,139 @@ class SASMacroProcessor:
 
                 macro    = self.macro_library[name]
                 params   = macro["params"]
+                defaults = macro.get("defaults", {})
                 body     = macro["body"]
                 local_let = {}
 
-                # Parse named args: param=value
-                if args_raw.strip():
-                    arg_dict = {}
-                    for arg in self._split_args(args_raw):
-                        if '=' in arg:
-                            k, v = arg.split('=', 1)
-                            arg_dict[k.strip().lstrip('&').upper()] = v.strip()
-                    # Fill positional args
-                    positional_vals = [
-                        v for k, v in sorted(
-                            ((i, a.strip()) for i, a in enumerate(self._split_args(args_raw))
-                             if '=' not in a),
-                            key=lambda x: x[0]
+                # Parse arguments
+                args_list = self._split_args(args_raw) if args_raw.strip() else []
+                arg_dict = {}
+                positional_vals = []
+
+                for arg in args_list:
+                    if '=' in arg:
+                        k, v = arg.split('=', 1)
+                        param_name = k.strip().lstrip('&').upper()
+                        if param_name not in params:
+                            self.warnings.append(
+                                f"⚠️ Unrecognized parameter '{param_name}' for macro %{name} — left unexpanded."
+                            )
+                            return match.group(0)
+                        arg_dict[param_name] = v.strip()
+                    else:
+                        positional_vals.append(arg.strip())
+
+                if len(positional_vals) > len(params):
+                    self.warnings.append(
+                        f"⚠️ Parameter count mismatch for macro %{name}: expected at most {len(params)} positional arguments, got {len(positional_vals)} — left unexpanded."
+                    )
+                    return match.group(0)
+
+                pos_idx = 0
+                for param in params:
+                    if param in arg_dict:
+                        local_let[param] = arg_dict[param]
+                    elif pos_idx < len(positional_vals):
+                        local_let[param] = positional_vals[pos_idx]
+                        pos_idx += 1
+                    elif param in defaults:
+                        local_let[param] = defaults[param]
+                    else:
+                        self.warnings.append(
+                            f"⚠️ Missing required parameter '{param}' for macro %{name} — left unexpanded."
                         )
-                    ]
-                    for i, param in enumerate(params):
-                        if param in arg_dict:
-                            local_let[param] = arg_dict[param]
-                        elif i < len(positional_vals):
-                            local_let[param] = positional_vals[i]
-                        else:
-                            local_let[param] = ""  # default empty
+                        return match.group(0)
 
                 # Substitute global & caller %let vars in local parameter values
-                caller_vars = {**self.let_vars, **(local_vars or {})}
+                caller_vars = self._get_active_vars(local_vars)
                 for k, v in list(local_let.items()):
                     local_let[k] = self._substitute_let_vars(str(v), caller_vars)
 
-                # Substitute global %let vars first
-                expanded = self._substitute_let_vars(body, self.let_vars)
-                # Then local parameter substitution
-                expanded = self._substitute_let_vars(expanded, local_let)
-                # Extract and apply non-dynamic local %let inside macro body
-                local_lets = {}
+                # Push new invocation frame
+                frame = MacroFrame(name)
+                for k, v in local_let.items():
+                    frame.set_var(k, v)
+                self.frame_stack.append(frame)
+
+                # Diagnostic logging for invocation parameter tracking
+                p_str = ", ".join(f"{k.lower()}:{v}" for k, v in local_let.items())
+                # print(f"MACRO INVOCATION: name={name} params={{{p_str}}}")
+
+                scope_vars = self._get_active_vars()
+
+                # Extract and apply scope statements (%local / %global) in macro body
+                body_scoped = self._parse_scope_statements(body)
+                body_scoped = self._remove_macro_definitions(body_scoped)
+
+                # Extract and apply top-level %let inside macro body before %do loops (masking %do blocks)
+                masked_body = body_scoped
+                do_blocks = []
+                while True:
+                    m_do = re.search(r'%do\b', masked_body, re.IGNORECASE)
+                    if not m_do:
+                        break
+                    block, end_pos = self._extract_do_end_block(masked_body, m_do.end())
+                    if block is None:
+                        break
+                    placeholder = f"___DO_BLOCK_{len(do_blocks)}___"
+                    do_blocks.append(masked_body[m_do.start():end_pos])
+                    masked_body = masked_body[:m_do.start()] + placeholder + masked_body[end_pos:]
+
+                for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', masked_body, re.IGNORECASE):
+                    let_name = lm.group(1).upper()
+                    let_val_raw = lm.group(2).strip()
+                    let_val_sub = self._substitute_let_vars(let_val_raw, self._get_active_vars())
+                    eval_val = self._evaluate_bounded_macro_functions(let_val_sub, self._get_active_vars())
+                    if eval_val is not None:
+                        let_val_sub = eval_val
+                    self._set_var_in_scope(let_name, let_val_sub)
+
+                masked_body = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', masked_body, flags=re.IGNORECASE)
+                for idx, blk in enumerate(do_blocks):
+                    masked_body = masked_body.replace(f"___DO_BLOCK_{idx}___", blk)
+
+                # Expand %do loops in body with updated scope vars
+                expanded = self._expand_do_loops(masked_body, self._get_active_vars())
+
+                # Retrieve updated scope vars after %let statements and %do loops
+                scope_vars = self._get_active_vars()
+
+                expanded = self._substitute_let_vars(expanded, scope_vars)
+                expanded = self._evaluate_if_else(expanded, scope_vars)
+
+                # Process %let statements revealed inside evaluated %if/%then/%else branches
                 for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', expanded, re.IGNORECASE):
-                    val = lm.group(2).strip()
-                    if '&' not in val:
-                        local_lets[lm.group(1).upper()] = val
-                if local_lets:
-                    expanded = self._substitute_let_vars(expanded, local_lets)
+                    let_name = lm.group(1).upper()
+                    let_val_raw = lm.group(2).strip()
+                    let_val_sub = self._substitute_let_vars(let_val_raw, self._get_active_vars())
+                    eval_val = self._evaluate_bounded_macro_functions(let_val_sub, self._get_active_vars())
+                    if eval_val is not None:
+                        let_val_sub = eval_val
+                    self._set_var_in_scope(let_name, let_val_sub)
 
-                # Expand %do loops in body
-                expanded = self._expand_do_loops(expanded, {**self.let_vars, **local_let, **local_lets})
+                expanded = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', expanded, flags=re.IGNORECASE)
 
-                # Evaluate %if/%then/%else in body
-                expanded = self._evaluate_if_else(expanded, {**self.let_vars, **local_let, **local_lets})
+                # Re-substitute variables with updated scope vars after branch evaluation
+                scope_vars = self._get_active_vars()
+                expanded = self._substitute_let_vars(expanded, scope_vars)
+
+                # Recurse for any newly introduced macro calls
+                expanded = self._expand_macro_calls(
+                    expanded,
+                    depth=depth + 1,
+                    local_vars=scope_vars,
+                    active_macros=active_macros | {name}
+                )
+
+                self.frame_stack.pop()
 
                 changed = True
                 return expanded + "\n"
 
             code = call_pattern.sub(replace_call, code)
 
-        # Recurse for any newly introduced macro calls
         if changed:
-            code = self._expand_macro_calls(code, depth + 1)
+            code = self._expand_macro_calls(code, depth + 1, active_macros=active_macros)
 
         return code
 
@@ -464,16 +900,42 @@ class SASMacroProcessor:
             # Evaluate branches
             selected = ""
             matched = False
+            failed_eval = False
             for b_cond, b_block in branches:
-                if self._evaluate_condition(b_cond, local_vars):
+                eval_res = self._evaluate_condition(b_cond, local_vars)
+                if eval_res is None:
+                    self.warnings.append(f"⚠️ Unable to evaluate macro %IF condition '{b_cond}' — safe reject.")
+                    selected = re.sub(r'\bset\b', 'set_unresolved', b_block, flags=re.IGNORECASE)
+                    matched = True
+                    failed_eval = True
+                    break
+                elif eval_res is True:
                     selected = b_block
+                    for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', selected, re.IGNORECASE):
+                        let_name = lm.group(1).upper()
+                        let_val_raw = lm.group(2).strip()
+                        let_val_sub = self._substitute_let_vars(let_val_raw, self._get_active_vars(local_vars))
+                        eval_val = self._evaluate_bounded_macro_functions(let_val_sub, self._get_active_vars(local_vars))
+                        if eval_val is not None:
+                            let_val_sub = eval_val
+                        self._set_var_in_scope(let_name, let_val_sub)
+                    selected = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', selected, flags=re.IGNORECASE)
                     matched = True
                     break
-            if not matched and default_block is not None:
+            if not matched and not failed_eval and default_block is not None:
                 selected = default_block
+                for lm in re.finditer(r'%let\s+(\w+)\s*=\s*(.*?)\s*;', selected, re.IGNORECASE):
+                    let_name = lm.group(1).upper()
+                    let_val_raw = lm.group(2).strip()
+                    let_val_sub = self._substitute_let_vars(let_val_raw, self._get_active_vars(local_vars))
+                    eval_val = self._evaluate_bounded_macro_functions(let_val_sub, self._get_active_vars(local_vars))
+                    if eval_val is not None:
+                        let_val_sub = eval_val
+                    self._set_var_in_scope(let_name, let_val_sub)
+                selected = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', selected, flags=re.IGNORECASE)
 
             code = code[:start_pos] + selected + code[end_pos:]
-            pos = start_pos + len(selected)
+            pos = start_pos
 
         # Single statement form: %if cond %then statement;
         single_pattern = re.compile(
@@ -486,7 +948,11 @@ class SASMacroProcessor:
             condition  = match.group(1).strip()
             then_stmt  = match.group(2) or ""
             else_stmt  = match.group(3) or ""
-            if self._evaluate_condition(condition, local_vars):
+            eval_res = self._evaluate_condition(condition, local_vars)
+            if eval_res is None:
+                self.warnings.append(f"⚠️ Unable to evaluate macro %IF condition '{condition}' — safe reject.")
+                return re.sub(r'\bset\b', 'set_unresolved', then_stmt, flags=re.IGNORECASE)
+            elif eval_res is True:
                 return then_stmt
             else:
                 return else_stmt
@@ -496,18 +962,38 @@ class SASMacroProcessor:
 
     # ── HELPER: EVALUATE CONDITION ───────────────────────────────
 
-    def _evaluate_condition(self, condition: str, local_vars: dict) -> bool:
+    def _evaluate_condition(self, condition: str, local_vars: dict) -> bool | None:
         """
-        Evaluate a simple SAS macro condition.
-        Supports: =, ne, ^=, >, <, >=, <=, and, or, not
-        Also handles %symexist, %upcase, %lowcase, blank checks.
+        Evaluate a simple SAS macro condition safely.
+        Returns True/False for valid simple conditions, or None for un-evaluable/unsupported conditions.
         """
+        # Reject unsupported macro functions or indirect references
+        if '&&' in condition:
+            return None
+
+        # Reject any %macro_function calls except allowed builtins if simple
+        macro_func_calls = re.findall(r'%(\w+)', condition)
+        for m_fn in macro_func_calls:
+            if m_fn.upper() not in ('SYMEXIST', 'UPCASE', 'LOWCASE'):
+                return None
+
         # Substitute variables
         cond = self._substitute_let_vars(condition, {**self.let_vars, **local_vars})
 
-        # Evaluate SAS macro functions in condition
+        # Reject if unresolved macro variables remain
+        if re.search(r'&\w+', cond):
+            return None
+
+        # Handle %upcase / %lowcase
         cond = re.sub(r'%upcase\s*\(\s*(.*?)\s*\)', lambda m: m.group(1).upper(), cond, flags=re.IGNORECASE)
         cond = re.sub(r'%lowcase\s*\(\s*(.*?)\s*\)', lambda m: m.group(1).lower(), cond, flags=re.IGNORECASE)
+
+        # Handle %symexist(var)
+        cond = re.sub(
+            r'%symexist\s*\(\s*(\w+)\s*\)',
+            lambda m: '1' if m.group(1).upper() in {**self.let_vars, **local_vars} else '0',
+            cond, flags=re.IGNORECASE
+        )
 
         # Normalize operators
         cond = re.sub(r'\bne\b',  '!=', cond, flags=re.IGNORECASE)
@@ -515,23 +1001,19 @@ class SASMacroProcessor:
         cond = re.sub(r'\blt\b',  '<',  cond, flags=re.IGNORECASE)
         cond = re.sub(r'\bge\b',  '>=', cond, flags=re.IGNORECASE)
         cond = re.sub(r'\ble\b',  '<=', cond, flags=re.IGNORECASE)
-        cond = re.sub(r'\band\b', 'and',cond, flags=re.IGNORECASE)
-        cond = re.sub(r'\bor\b',  'or', cond, flags=re.IGNORECASE)
-        cond = re.sub(r'\bnot\b', 'not',cond, flags=re.IGNORECASE)
+        cond = re.sub(r'\band\b', ' and ', cond, flags=re.IGNORECASE)
+        cond = re.sub(r'\bor\b',  ' or ',  cond, flags=re.IGNORECASE)
+        cond = re.sub(r'\bnot\b', ' not ', cond, flags=re.IGNORECASE)
         cond = re.sub(r'\^=',     '!=', cond)
         cond = re.sub(r'(?<![<>!=])=(?!=)', '==', cond)
 
-        # Handle %symexist(var) — check if macro var is defined
-        cond = re.sub(
-            r'%symexist\s*\(\s*(\w+)\s*\)',
-            lambda m: '1' if m.group(1).upper() in {**self.let_vars, **local_vars} else '0',
-            cond, flags=re.IGNORECASE
-        )
+        # Normalize single/double quotes around words so 'SAFFL' and SAFFL tokenize uniformly
+        cond = re.sub(r"['\"]([A-Za-z_]\w*)['\"]", r"\1", cond)
 
-        # Convert SAS string comparison to Python
+        # Convert SAS bare word comparison to Python quoted string literals
         def quote_bare_word(m):
             word = m.group(1)
-            if word.upper() in ('AND', 'OR', 'NOT', 'TRUE', 'FALSE'):
+            if word.lower() in ('and', 'or', 'not', 'true', 'false'):
                 return word
             try:
                 float(word)
@@ -539,16 +1021,15 @@ class SASMacroProcessor:
             except ValueError:
                 return f"'{word}'"
 
-        cond = re.sub(r'\b([A-Za-z_]\w*)\b', quote_bare_word, cond)
+        cond_py = re.sub(r'\b([A-Za-z_]\w*)\b', quote_bare_word, cond)
 
-        # Evaluate safely
         try:
-            result = bool(eval(cond, {"__builtins__": {}}))
+            result = eval(cond_py, {"__builtins__": {}})
+            if isinstance(result, (bool, int, float, str)):
+                return bool(result)
+            return None
         except Exception:
-            # If we can't evaluate — assume True (include the block)
-            result = True
-
-        return result
+            return None
 
     # ── HELPER: DYNAMIC MACRO NAME RESOLUTION ───────────────────
 
@@ -570,8 +1051,14 @@ class SASMacroProcessor:
         code = re.sub(r'%let\s+\w+\s*=\s*[^;]*;', '', code, flags=re.IGNORECASE)
         # Remove leftover %put statements
         code = re.sub(r'%put\s+[^;]*;', '', code, flags=re.IGNORECASE)
-        # Remove stray % references that couldn't be resolved
-        code = re.sub(r'&\w+\.?', '', code)
+        if '&&' in code:
+            self.warnings.append("⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.")
+        # Record warnings for unresolved macro variables
+        unresolved = re.findall(r'&[A-Za-z_]\w*', code)
+        if unresolved:
+            for var in set(unresolved):
+                self.warnings.append(f"⚠️ Unresolved macro variable {var} — left unexpanded.")
+            code = re.sub(r'\bset\b', 'set_unresolved', code, flags=re.IGNORECASE)
         return code
 
 

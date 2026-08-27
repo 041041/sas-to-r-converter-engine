@@ -123,11 +123,25 @@ class SemanticConversionEngine:
         r_fn_blocks = []
         evidence = []
 
+        from macro_converter import classify_macro
+
+        all_defs = {
+            m_name: {'body': m_ir.raw_body, 'params': [p.name for p in m_ir.parameters]}
+            for m_name, m_ir in ast.macros.items()
+        }
+
         for fn in sem_ir.r_functions:
             fn_name = fn.function_name
             macro_ir = ast.macros.get(fn_name.upper())
+            if macro_ir:
+                m_def = {'body': macro_ir.raw_body, 'params': [p.name for p in macro_ir.parameters]}
+                cls_res = classify_macro(fn_name.upper(), m_def, all_macro_defs=all_defs)
+                if cls_res != 'PATH_B':
+                    logger.error(f"ERROR: Non-PATH_B macro %{fn_name} (classified as {cls_res}) reached R-function generator!")
+                    continue
 
-            arg_list = ["data"]
+            has_explicit_data = any(arg["name"].lower() == "data" for arg in fn.arguments)
+            arg_list = [] if has_explicit_data else ["data"]
             param_rename = {}
             for arg in fn.arguments:
                 aname = arg["name"].lower()

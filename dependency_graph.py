@@ -97,3 +97,58 @@ def build_dependency_graph(ast: ProgramAST) -> DependencyGraph:
         graph.variable_scope_map[macro_name] = param_names + macro_ir.local_vars
         
     return graph
+
+
+def topological_sort_macros(macro_call_graph: dict[str, MacroCallNode]) -> tuple[list[str], bool, str]:
+    """
+    Performs topological sort on macro_call_graph.
+    Returns (sorted_macro_names, has_cycle, error_message).
+    If macro A calls macro B (A depends on B), B must appear BEFORE A in execution/definition order.
+    """
+    nodes = list(macro_call_graph.keys())
+    deps = {node: set(macro_call_graph[node].calls) for node in nodes}
+    
+    # DFS for cycle detection
+    visited = {node: 0 for node in nodes}  # 0: unvisited, 1: visiting, 2: visited
+    cycle_found = False
+    cycle_node = ""
+
+    def dfs(node):
+        nonlocal cycle_found, cycle_node
+        visited[node] = 1
+        for dep in deps.get(node, []):
+            if dep in visited:
+                if visited[dep] == 1:
+                    cycle_found = True
+                    cycle_node = dep
+                    return
+                elif visited[dep] == 0:
+                    dfs(dep)
+            if cycle_found:
+                return
+        visited[node] = 2
+
+    for node in nodes:
+        if visited[node] == 0:
+            dfs(node)
+            if cycle_found:
+                return [], True, f"Macro dependency cycle detected involving %{cycle_node}"
+
+    # Topological sort (post-order DFS: dependencies visit first)
+    ordered = []
+    seen = set()
+
+    def visit(node):
+        if node in seen:
+            return
+        seen.add(node)
+        for dep in deps.get(node, []):
+            if dep in macro_call_graph:
+                visit(dep)
+        ordered.append(node)
+
+    for node in nodes:
+        visit(node)
+
+    return ordered, False, ""
+

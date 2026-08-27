@@ -65,6 +65,8 @@ class SemanticProgram:
         }
 
 
+from macro_converter import classify_macro
+
 def build_semantic_ir(ast: ProgramAST, expanded_sas_code: str) -> SemanticProgram:
     """
     Constructs a SemanticProgram IR from the ProgramAST and resolved SAS code.
@@ -85,8 +87,16 @@ def build_semantic_ir(ast: ProgramAST, expanded_sas_code: str) -> SemanticProgra
             sas_source_snippet=f"filename {fil} '{val}';"
         ))
 
-    # 2. Map SAS Macros to RFunctionSignatures
+    # 2. Map SAS Macros to RFunctionSignatures (Path B reusable macros only)
+    all_macro_defs = {
+        m_name: {'body': m_ir.raw_body, 'params': [p.name for p in m_ir.parameters]}
+        for m_name, m_ir in ast.macros.items()
+    }
     for m_name, m_ir in ast.macros.items():
+        macro_def = {'body': m_ir.raw_body, 'params': [p.name for p in m_ir.parameters]}
+        if classify_macro(m_name, macro_def, all_macro_defs=all_macro_defs) != 'PATH_B':
+            continue
+
         fn_args = []
         for p in m_ir.parameters:
             fn_args.append({
