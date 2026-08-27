@@ -3,7 +3,7 @@ test_phase8_51_upcase_macro_condition.py
 ──────────────────────────────────────────
 Regression test for Phase 8.51:
 Validates that residual %upcase() / %lowcase() in SAS DATA step condition expressions
-are translated to valid R toupper() / tolower() without leaving invalid residual '%' signs.
+are evaluated during macro expansion without leaving invalid residual '%' signs.
 """
 
 import pytest
@@ -41,6 +41,7 @@ def test_phase8_51_upcase_macro_condition():
     proc = SASMacroProcessor()
     unexp_sas, warnings, _ = proc.process(sas_code, expand_path_b=True)
     assert "AE_FILT" in unexp_sas, "Expanded SAS does not contain output dataset AE_FILT"
+    assert "%upcase" not in unexp_sas, f"Residual %upcase macro symbol found in expanded SAS:\n{unexp_sas}"
 
     # 3. Conversion to R
     converter = SASStepConverter(dialect="Modern R (dplyr)")
@@ -51,8 +52,8 @@ def test_phase8_51_upcase_macro_condition():
     # 4. Assertions on Generated R
     assert "%upcase" not in r_code, f"Residual %upcase macro symbol found in generated R:\n{r_code}"
     assert "%lowcase" not in r_code, f"Residual %lowcase macro symbol found in generated R:\n{r_code}"
-    assert "toupper(aedecod)" in r_code or "toupper(.data$aedecod)" in r_code or "toupper(" in r_code, (
-        f"Expected toupper() in generated R, got:\n{r_code}"
+    assert 'AEDECOD == "HEADACHE"' in r_code or 'aedecod == "HEADACHE"' in r_code or 'toupper(' in r_code, (
+        f"Expected condition in generated R, got:\n{r_code}"
     )
 
     # 5. Executable R Syntax Validation via Rscript if installed
@@ -84,4 +85,4 @@ def test_phase8_51_lowcase_macro_condition():
 
     r_code = res.full_optimized_r
     assert "%lowcase" not in r_code
-    assert "tolower(" in r_code
+    assert 'sex == "m"' in r_code or 'SEX == "m"' in r_code or 'tolower(' in r_code

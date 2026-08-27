@@ -147,6 +147,9 @@ class SASMacroProcessor:
         # 8.5 Substitute global macro variables updated during macro execution
         expanded = self._substitute_let_vars(expanded, self._get_active_vars())
         expanded = self._evaluate_if_else(expanded, self._get_active_vars())
+        eval_exp = self._evaluate_bounded_macro_functions(expanded, self._get_active_vars())
+        if eval_exp is not None:
+            expanded = eval_exp
 
         # 9. Final cleanup
         final_code = self._cleanup(expanded)
@@ -288,6 +291,20 @@ class SASMacroProcessor:
                     res_scan = ""
 
                 expr = expr[:m_scan.start()] + res_scan + expr[m_scan.end():]
+                continue
+
+            # 6. %UPCASE(text)
+            m_up = re.search(r'%upcase\s*\(\s*([^()]*)\s*\)', expr, re.I)
+            if m_up:
+                raw_text = m_up.group(1).strip("'\"")
+                expr = expr[:m_up.start()] + raw_text.upper() + expr[m_up.end():]
+                continue
+
+            # 7. %LOWCASE(text)
+            m_low = re.search(r'%lowcase\s*\(\s*([^()]*)\s*\)', expr, re.I)
+            if m_low:
+                raw_text = m_low.group(1).strip("'\"")
+                expr = expr[:m_low.start()] + raw_text.lower() + expr[m_low.end():]
                 continue
 
             # No more macro functions found
@@ -790,6 +807,9 @@ class SASMacroProcessor:
                 # Re-substitute variables with updated scope vars after branch evaluation
                 scope_vars = self._get_active_vars()
                 expanded = self._substitute_let_vars(expanded, scope_vars)
+                eval_exp = self._evaluate_bounded_macro_functions(expanded, scope_vars)
+                if eval_exp is not None:
+                    expanded = eval_exp
 
                 # Recurse for any newly introduced macro calls
                 expanded = self._expand_macro_calls(

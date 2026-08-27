@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-27 21:37:01
+**Test Timestamp**: 2026-08-27 21:54:50
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -214,7 +214,7 @@ Automated modernization analysis for 'Level 3_Nested_Macros'. The program contai
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 3_Nested_Macros`
 - **Input Datasets**: `ADSL`
-- **Output Datasets**: `ADSL_CLEAN, ADSL_SORTED`
+- **Output Datasets**: `ADSL_SORTED, ADSL_CLEAN`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -294,7 +294,7 @@ Automated modernization analysis for 'Level 4_Dynamic_Macro_References'. The pro
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 4_Dynamic_Macro_References`
 - **Input Datasets**: `None`
-- **Output Datasets**: `DM_SORTED, AE_SORTED`
+- **Output Datasets**: `AE_SORTED, DM_SORTED`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -698,9 +698,9 @@ EXTREME_SUMMARY
 - ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
 - ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
 - ⚠️ ⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1_proc — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1 — left unexpanded.
 - ⚠️ ⚠️ Unresolved macro variable &ds1_clean — left unexpanded.
+- ⚠️ ⚠️ Unresolved macro variable &ds1 — left unexpanded.
+- ⚠️ ⚠️ Unresolved macro variable &ds1_proc — left unexpanded.
 - ⚠️ Unresolved step requires manual translation: 
 
 
