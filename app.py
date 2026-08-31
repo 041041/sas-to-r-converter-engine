@@ -1257,7 +1257,12 @@ if page == "🔄 SAS Converter":
                   sname = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"Step{i}"
               elif step_lower.startswith("proc"):
                   stype = "PROC_STEP"
-                  sname = sort_inplace_match.group(1).split('.')[-1].upper().strip() if (sort_inplace_match and not re.search(r"out\s*=", step, re.I)) else f"Step{i}"
+                  if out_name_match:
+                      sname = out_name_match.group(1).split('.')[-1].upper().strip()
+                  elif sort_inplace_match:
+                      sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
+                  else:
+                      sname = f"Step{i}"
               else:
                   stype = "MACRO_CALL"
                   m_match = re.search(r"%(\w+)", step, re.I)
@@ -1301,10 +1306,10 @@ if page == "🔄 SAS Converter":
 
                               elapsed = time.time() - step_start
                               st.code(rc, language="r")
-                              if stype == "MACRO_CALL" or f"{sname} <-" in rc or f"{sname} =" in rc:
+                              if stype == "MACRO_CALL" or f"{sname} <-" in rc or f"{sname} =" in rc or re.search(r'\b[a-zA-Z_]\w*\s*<-', rc):
                                   all_r.append(f"# --- {sname} ---\n{rc}\n")
                               else:
-                                  all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
+                                  all_r.append(f"# --- {sname} ---\n{rc}\n")
                               if sname not in known_tables:
                                   known_tables.append(sname)
                               st.success(f"✅ {sname} converted — ⏱️ {format_elapsed(elapsed)}")

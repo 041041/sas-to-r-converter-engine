@@ -328,7 +328,7 @@ class RuleEngine:
             if self.is_tidyverse:
                 sort_terms.append(f"desc({v_name})" if is_desc else v_name)
             else:
-                sort_terms.append(f"-{out_ds}${v_name}" if is_desc else f"{out_ds}${v_name}")
+                sort_terms.append(f"-{in_ds}${v_name}" if is_desc else f"{in_ds}${v_name}")
             is_desc = False
             
         if self.is_tidyverse:
