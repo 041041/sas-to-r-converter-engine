@@ -231,9 +231,11 @@ class RuleEngine:
         expr = RuleEngine._normalize_sas_char_missing(expr)
         expr = RuleEngine._normalize_sas_elementwise_functions(expr)
 
-        # Handle SAS missing() function
+        # Handle SAS missing() function and IS NOT NULL / IS NULL
         expr = re.sub(r'\bnot\s+missing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'!is.na(\1)', expr, flags=re.I)
         expr = re.sub(r'\bmissing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'is.na(\1)', expr, flags=re.I)
+        expr = re.sub(r'\b([a-zA-Z_]\w*)\s+is\s+not\s+null\b', r'!is.na(\1)', expr, flags=re.I)
+        expr = re.sub(r'\b([a-zA-Z_]\w*)\s+is\s+null\b', r'is.na(\1)', expr, flags=re.I)
 
         # Handle numeric missing . comparison
         expr = re.sub(r'\b([a-zA-Z_]\w*)\s+(?:ne|NE|!=|\^=)\s*\.', r'!is.na(\1)', expr)
@@ -1281,10 +1283,22 @@ class RuleEngine:
             join_ds = join_m.group(2).split('.')[-1].upper()
             right_alias = join_m.group(3) or join_ds
             join_on_raw = join_m.group(4).strip() if join_m.group(4) else ""
-            on_match = re.search(r"(?:\w+\.)?(\w+)\s*=\s*(?:\w+\.)?(\w+)", join_on_raw, re.I)
+            on_match = re.search(r"(?:(\w+)\.)?(\w+)\s*=\s*(?:(\w+)\.)?(\w+)", join_on_raw, re.I)
             if on_match:
-                join_key = on_match.group(1)
-                join_on = f'"{join_key}"'
+                alias1, key1, alias2, key2 = on_match.group(1), on_match.group(2), on_match.group(3), on_match.group(4)
+                if alias1 and alias2 and right_alias:
+                    if alias1.lower() == right_alias.lower() or (join_ds and alias1.upper() == join_ds.upper()):
+                        left_key, right_key = key2, key1
+                    else:
+                        left_key, right_key = key1, key2
+                else:
+                    left_key, right_key = key1, key2
+
+                join_key = left_key
+                if left_key.lower() == right_key.lower():
+                    join_on = f'"{left_key}"'
+                else:
+                    join_on = f'c("{left_key}" = "{right_key}")'
 
         # 3. SELECT clause items & Alias Mapping
         select_m = re.search(r"\bselect\s+(.*?)\s+\bfrom\b", code_clean, re.I | re.DOTALL)
@@ -1405,8 +1419,8 @@ class RuleEngine:
                 summarise_items.append(f"{a_name} = n()")
                 alias_map["count(*)"] = a_name
                 alias_map[expr_clean] = a_name
-            elif re.search(r'count\s*\(\s*(\w+)\s*\)', expr, re.I):
-                c_var = re.search(r'count\s*\(\s*(\w+)\s*\)', expr, re.I).group(1)
+            elif re.search(r'count\s*\(\s*([\w.]+)\s*\)', expr, re.I):
+                c_var = re.search(r'count\s*\(\s*([\w.]+)\s*\)', expr, re.I).group(1).split('.')[-1]
                 a_name = alias or f"count_{c_var}"
                 summarise_items.append(f"{a_name} = sum(!is.na({c_var}))")
                 alias_map[f"count({c_var.lower()})"] = a_name
@@ -1480,13 +1494,7 @@ class RuleEngine:
 
             if w_raw:
                 w_raw = re.sub(r'\b[a-zA-Z_]\w*\.', '', w_raw)
-                w_raw = re.sub(r'(\w+)\s+is\s+not\s+null\b', r'!is.na(\1)', w_raw, flags=re.I)
-                w_raw = re.sub(r'(\w+)\s+is\s+null\b', r'is.na(\1)', w_raw, flags=re.I)
-                w_raw = self._normalize_sas_date_literals(w_raw)
-                w_raw = self._normalize_sas_char_missing(w_raw)
-                w_raw = re.sub(r'(?<![<>!=])=(?!=)', '==', w_raw)
-                w_raw = re.sub(r'\band\b', ' & ', w_raw, flags=re.I)
-                w_raw = re.sub(r'\bor\b', ' | ', w_raw, flags=re.I)
+                w_raw = self._normalize_sas_condition(w_raw)
                 where_cond = w_raw.strip() if w_raw.strip() else None
 
         # 5. GROUP BY clause
@@ -1648,6 +1656,8 @@ class RuleEngine:
             else:
                 if part.isdigit() or (part.startswith('"') and part.endswith('"')) or (part.startswith("'") and part.endswith("'")):
                     v_r = part
+                elif re.match(r'^[A-Za-z_][\w\s]*$', part) and len(part.split()) > 1:
+                    v_r = f'"{part}"'
                 elif part.isupper() and len(part) <= 8 and re.match(r'^[A-Za-z_]\w*$', part):
                     v_r = f'"{part}"'
                 else:

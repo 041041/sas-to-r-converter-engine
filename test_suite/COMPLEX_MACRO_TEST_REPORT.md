@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-27 21:54:50
+**Test Timestamp**: 2026-08-31 18:44:01
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -214,7 +214,7 @@ Automated modernization analysis for 'Level 3_Nested_Macros'. The program contai
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 3_Nested_Macros`
 - **Input Datasets**: `ADSL`
-- **Output Datasets**: `ADSL_SORTED, ADSL_CLEAN`
+- **Output Datasets**: `ADSL_CLEAN, ADSL_SORTED`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -519,7 +519,7 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 7_Complex_Clinical_Macro`
 - **Input Datasets**: `DM`
-- **Output Datasets**: `ADSL_POP, ADAE, AE_JOINED`
+- **Output Datasets**: `ADAE, ADSL_POP, AE_JOINED`
 - **Libraries / Data Sources**:
   - `SDTM` $\rightarrow$ `lib_sdtm`
   - `ADAM` $\rightarrow$ `lib_adam`
@@ -613,7 +613,7 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 8_Extreme_Macro`
-- **Input Datasets**: `DM_CLEAN, AE_CLEAN`
+- **Input Datasets**: `AE_CLEAN, DM_CLEAN`
 - **Output Datasets**: `, EXTREME_SUMMARY`
 - **Libraries / Data Sources**:
   - `RAW` $\rightarrow$ `lib_raw`
@@ -698,8 +698,8 @@ EXTREME_SUMMARY
 - ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
 - ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
 - ⚠️ ⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1_clean — left unexpanded.
 - ⚠️ ⚠️ Unresolved macro variable &ds1 — left unexpanded.
+- ⚠️ ⚠️ Unresolved macro variable &ds1_clean — left unexpanded.
 - ⚠️ ⚠️ Unresolved macro variable &ds1_proc — left unexpanded.
 - ⚠️ Unresolved step requires manual translation: 
 

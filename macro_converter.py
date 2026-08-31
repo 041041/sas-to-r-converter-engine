@@ -722,6 +722,7 @@ class RuleBasedConverter:
                 k, v = p_str.split('=', 1)
                 k_clean = k.strip().lower()
                 v_clean = v.strip()
+                v_clean = re.sub(r'^%(?:str|quote|nrbquote|bquote)\((.*)\)$', r'\1', v_clean, flags=re.I).strip()
                 if v_clean:
                     params_clean.append(f'{k_clean} = "{v_clean}"')
                 else:
@@ -748,8 +749,9 @@ class RuleBasedConverter:
             if m:
                 last_result = m.group(1)
                 break
-        if last_result and last_result.lower() not in ('data', 'out', func_name):
-            body_lines.append(f"return({last_result})")
+        if last_result and last_result.lower() != func_name:
+            if not any(ln.strip().startswith("return(") for ln in body_lines):
+                body_lines.append(f"return({last_result})")
 
         body = "\n".join(f"  {ln}" for ln in body_lines if ln.strip())
 
@@ -767,7 +769,7 @@ class RuleBasedConverter:
 
     def _convert_statement(self, stmt: MacroStatement, params: list, dialect: str) -> tuple:
         dispatch = {
-            'proc_sort':      self._proc_sort,
+            'proc_sort':      lambda s, d: self._proc_sort(s, d, params=params),
             'proc_means':     self._proc_means,
             'proc_freq':      self._proc_freq,
             'data_step':      self._data_step,
@@ -841,12 +843,14 @@ class RuleBasedConverter:
         return lines, 0.60
 
     # ── PROC SORT ───────────────────────────────────────────────
-    def _proc_sort(self, stmt: MacroStatement, dialect: str) -> tuple:
+    def _proc_sort(self, stmt: MacroStatement, dialect: str, params: Optional[list] = None) -> tuple:
         inp       = stmt.attrs['input']
         out       = stmt.attrs['output']
         by_vars   = stmt.attrs['by_vars']
         nodupkey  = stmt.attrs.get('nodupkey', False)
         noduprecs = stmt.attrs.get('noduprecs', False)
+
+        params_set = set(p.lower() for p in (params or []))
 
         # Detect descending prefix
         desc_vars = []
@@ -862,28 +866,34 @@ class RuleBasedConverter:
                 i += 1
 
         if dialect == "Modern R (dplyr)":
-            arrange_args = [
-                f'desc(.data[["{v}"]])' if v in desc_vars else f'.data[["{v}"]]'
-                for v in clean_by
-            ]
+            arrange_args = []
+            for v in clean_by:
+                col_expr = f'.data[[{v.lower()}]]' if v.lower() in params_set else f'.data[["{v}"]]'
+                if v in desc_vars:
+                    arrange_args.append(f'desc({col_expr})')
+                else:
+                    arrange_args.append(col_expr)
             lines = [
                 f"{out} <- {inp} %>%",
                 f"  arrange({', '.join(arrange_args)})",
             ]
             if nodupkey or noduprecs:
-                dup_cols = ', '.join(f'"{v}"' for v in clean_by) if nodupkey else 'everything()'
+                dup_cols = ', '.join(f'{v.lower()}' if v.lower() in params_set else f'"{v}"' for v in clean_by) if nodupkey else 'everything()'
                 lines[-1] += " %>%"
                 lines.append(f"  distinct({dup_cols}, .keep_all = TRUE)")
         else:
-            order_args = [
-                f'-{inp}[["{v}"]]' if v in desc_vars else f'{inp}[["{v}"]]'
-                for v in clean_by
-            ]
+            order_args = []
+            for v in clean_by:
+                col_expr = f'{inp}[[{v.lower()}]]' if v.lower() in params_set else f'{inp}[["{v}"]]'
+                if v in desc_vars:
+                    order_args.append(f'-{col_expr}')
+                else:
+                    order_args.append(col_expr)
             lines = [
                 f"{out} <- {inp}[order({', '.join(order_args)}), ]",
             ]
             if nodupkey or noduprecs:
-                dup_cols = ', '.join(f'"{v}"' for v in clean_by) if nodupkey else 'NULL'
+                dup_cols = ', '.join(f'{v.lower()}' if v.lower() in params_set else f'"{v}"' for v in clean_by) if nodupkey else 'NULL'
                 lines.append(f"{out} <- {out}[!duplicated({out}[, c({dup_cols})]), ]")
 
         return lines, 0.95
