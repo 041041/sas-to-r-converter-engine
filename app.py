@@ -48,6 +48,7 @@ def clear_all():
     st.session_state.pipeline_results = []
     st.session_state.pipeline_run = False
     st.session_state.fix_results = {}
+    st.session_state.loaded_project_file = None
 
 # --- ENTERPRISE CUSTOM CSS (ADAPTS TO STREAMLIT LIGHT & DARK THEMES) ---
 st.markdown("""
@@ -1358,32 +1359,62 @@ quit;"""
             key="sas_input"
         )
 
-        with st.expander("📁 SAS Source File", expanded=True):
-            st.caption("Upload the main SAS program to convert.")
-            uploaded_sas_file = st.file_uploader(
-                "Upload main .sas file",
-                type=["sas", "txt"],
-                key="sas_file_input"
-            )
-            if uploaded_sas_file:
-                try:
-                    sas_content = uploaded_sas_file.getvalue().decode("utf-8", errors="ignore")
-                    st.session_state.sas_input = sas_content
-                    st.success("✅ SAS main program loaded from file!")
-                except Exception as e:
-                    st.error(f"Failed to read file: {e}")
-
-        # Secondary Section: Supporting Macro Library Files (Optional, collapsed by default)
-        with st.expander("📁 Macro Library (Optional)", expanded=False):
-            st.caption("Upload supporting SAS macro definitions used by the program.")
-            macro_files = st.file_uploader(
-                "Upload supporting .sas macro files",
+        # ── UNIFIED SAS PROJECT FILE UPLOADER (ONE PHYSICAL UPLOADER) ──
+        supporting_files = []
+        with st.expander("📁 SAS Project Files", expanded=True):
+            st.caption("Upload your main SAS program and optional supporting SAS files.")
+            uploaded_project_files = st.file_uploader(
+                "Upload SAS files (.sas, .txt)",
                 type=["sas", "txt"],
                 accept_multiple_files=True,
-                key="macro_lib_files"
+                key="sas_project_files_input_" + str(st.session_state.get("upload_key", 0))
             )
-            if has_macros(sas_script):
-                st.info("🔧 Macros detected in your program!")
+
+            if uploaded_project_files:
+                file_names = [f.name for f in uploaded_project_files]
+                files_by_name = {f.name: f for f in uploaded_project_files}
+
+                if len(uploaded_project_files) == 1:
+                    main_file = uploaded_project_files[0]
+                    st.markdown(f"**Main SAS Program:** `{main_file.name}`")
+                    if st.session_state.get("loaded_project_file") != main_file.name:
+                        try:
+                            content = main_file.getvalue().decode("utf-8", errors="ignore")
+                            st.session_state.sas_input = content
+                            st.session_state.loaded_project_file = main_file.name
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to read file: {e}")
+                    supporting_files = []
+                else:
+                    st.markdown("**Uploaded Files:**")
+                    for fn in file_names:
+                        st.markdown(f"• `{fn}`")
+
+                    selected_main_name = st.selectbox(
+                        "Main SAS Program",
+                        options=file_names,
+                        key="selected_main_sas_file_" + str(st.session_state.get("upload_key", 0))
+                    )
+
+                    if selected_main_name and st.session_state.get("loaded_project_file") != selected_main_name:
+                        try:
+                            main_file = files_by_name[selected_main_name]
+                            content = main_file.getvalue().decode("utf-8", errors="ignore")
+                            st.session_state.sas_input = content
+                            st.session_state.loaded_project_file = selected_main_name
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to read {selected_main_name}: {e}")
+
+                    supporting_files = [f for f in uploaded_project_files if f.name != selected_main_name]
+                    if supporting_files:
+                        st.markdown("**Supporting SAS Files:**")
+                        for sf in supporting_files:
+                            st.markdown(f"• `{sf.name}`")
+
+        # Store supporting_files in session_state for pipeline retrieval
+        st.session_state["active_supporting_files"] = supporting_files
 
         # Expected SAS Outputs File Uploader (Only in Validate Mode)
         uploaded_csvs = st.session_state.uploaded_csvs
@@ -1512,10 +1543,11 @@ quit;"""
         has_path_b = any(classify_macro(m, m_def, all_macro_defs=_macro_defs) == "PATH_B" for m, m_def in _macro_defs.items()) if _macro_defs else False
 
         extra_files = []
-        if macro_files:
-            for mf in macro_files:
+        active_sup_files = st.session_state.get("active_supporting_files", [])
+        if active_sup_files:
+            for sf in active_sup_files:
                 try:
-                    extra_files.append(mf.getvalue().decode('utf-8', errors='ignore'))
+                    extra_files.append(sf.getvalue().decode('utf-8', errors='ignore'))
                 except Exception:
                     pass
 
