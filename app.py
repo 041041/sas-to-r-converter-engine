@@ -136,6 +136,78 @@ st.markdown("""
         margin-left: 8px;
         font-family: monospace;
     }
+
+    /* Fix Streamlit Widget & Text Rendering Contrast */
+    section[data-testid="stMain"] {
+        color: var(--text-main);
+    }
+
+    section[data-testid="stMain"] h1,
+    section[data-testid="stMain"] h2,
+    section[data-testid="stMain"] h3,
+    section[data-testid="stMain"] h4,
+    section[data-testid="stMain"] h5,
+    section[data-testid="stMain"] h6,
+    section[data-testid="stMain"] p,
+    section[data-testid="stMain"] label,
+    section[data-testid="stMain"] div[data-testid="stMarkdownContainer"] p,
+    section[data-testid="stMain"] div[data-testid="stMarkdownContainer"] h1,
+    section[data-testid="stMain"] div[data-testid="stMarkdownContainer"] h2,
+    section[data-testid="stMain"] div[data-testid="stMarkdownContainer"] h3,
+    section[data-testid="stMain"] div[data-testid="stMarkdownContainer"] h4,
+    section[data-testid="stMain"] div[data-testid="stWidgetLabel"] label,
+    section[data-testid="stMain"] div[data-testid="stWidgetLabel"] p,
+    section[data-testid="stMain"] div[data-testid="stRadio"] label,
+    section[data-testid="stMain"] div[data-testid="stRadio"] label p,
+    section[data-testid="stMain"] div[data-testid="stRadio"] label span,
+    section[data-testid="stMain"] div[data-testid="stRadio"] p,
+    section[data-testid="stMain"] div[data-testid="stRadio"] span,
+    section[data-testid="stMain"] div[data-testid="stSelectbox"] label,
+    section[data-testid="stMain"] div[data-testid="stSelectbox"] label p,
+    section[data-testid="stMain"] div[data-testid="stTextArea"] label,
+    section[data-testid="stMain"] div[data-testid="stTextArea"] label p,
+    section[data-testid="stMain"] div[data-testid="stFileUploader"] label,
+    section[data-testid="stMain"] div[data-testid="stFileUploader"] label p,
+    section[data-testid="stMain"] div[data-testid="stExpander"] summary span,
+    section[data-testid="stMain"] div[data-testid="stExpander"] summary div,
+    section[data-testid="stMain"] div[data-testid="stExpander"] summary p,
+    section[data-testid="stMain"] details summary span,
+    section[data-testid="stMain"] details summary p {
+        color: #0F172A !important;
+    }
+
+    section[data-testid="stMain"] div[data-testid="stCaptionContainer"] p,
+    section[data-testid="stMain"] small {
+        color: #64748B !important;
+    }
+
+    /* Sidebar Dark Theme Scoping */
+    section[data-testid="stSidebar"] {
+        background-color: #0F172A !important;
+    }
+
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] h4,
+    section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p,
+    section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] label,
+    section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p,
+    section[data-testid="stSidebar"] div[data-testid="stRadio"] label,
+    section[data-testid="stSidebar"] div[data-testid="stRadio"] label p,
+    section[data-testid="stSidebar"] div[data-testid="stRadio"] label span,
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary span,
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary p {
+        color: #F8FAFC !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p,
+    section[data-testid="stSidebar"] small {
+        color: #94A3B8 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
