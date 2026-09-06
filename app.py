@@ -335,13 +335,27 @@ st.markdown("""
         color: var(--text-main) !important;
     }
 
-    /* SAS Code Text Area Styling */
+    /* SAS Code Text Area & Generated R Code Block Styling */
     div[data-testid="stTextArea"] textarea {
         background-color: var(--bg-surface) !important;
         color: var(--text-main) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: var(--radius) !important;
         font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+    }
+
+    div[data-testid="stCodeBlock"],
+    div[data-testid="stCodeBlock"] pre {
+        background-color: var(--bg-surface) !important;
+        color: var(--text-main) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+    }
+
+    div[data-testid="stCodeBlock"] pre {
+        min-height: 240px !important;
+        margin: 0 !important;
     }
 
     div[data-testid="stTextArea"] textarea::placeholder {
@@ -1576,7 +1590,8 @@ quit;"""
 
             st.code(full_r_display, language="r")
 
-            c_copy, c_dl = st.columns(2)
+            st.divider()
+            c_copy, c_dl = st.columns([1.5, 1])
             with c_copy:
                 st.caption("📋 Select code block above to copy")
             with c_dl:
@@ -1589,6 +1604,22 @@ quit;"""
                 )
         else:
             st.info("👈 Enter SAS code on the left and click Convert to view generated R code here.")
+            placeholder_code = "# Modernized R code output will appear here after conversion.\n# Select a sample script on the left or paste SAS code, then click '⚡ Convert SAS → R'."
+            st.code(placeholder_code, language="r")
+
+            st.divider()
+            c_copy, c_dl = st.columns([1.5, 1])
+            with c_copy:
+                st.caption("📋 Select code block above to copy")
+            with c_dl:
+                st.download_button(
+                    "⬇️ Download .R Script",
+                    data="",
+                    file_name="converted_pipeline.R",
+                    mime="text/plain",
+                    use_container_width=True,
+                    disabled=True
+                )
 
     # ── PIPELINE EXECUTION LOGIC ──
     if run_btn:
