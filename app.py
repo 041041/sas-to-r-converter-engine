@@ -103,27 +103,35 @@ st.markdown("""
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     
-    /* Main Workspace Compact Layout */
+    /* Main Workspace Enterprise Container & Grid Alignment */
     .block-container {
-        padding-top: 1.2rem !important;
+        max-width: 1400px !important;
+        margin: 0 auto !important;
+        padding-top: 2.5rem !important;
         padding-bottom: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
     }
 
-    /* Top Header & Subtitle Contrast */
+    /* Top Header & Subtitle Styling (Ensures zero vertical clipping) */
     section[data-testid="stMain"] h1 {
-        font-size: 1.55rem !important;
+        font-size: 1.65rem !important;
         font-weight: 700 !important;
         color: var(--text-main) !important;
-        margin-bottom: 0.2rem !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.25rem !important;
+        padding-top: 0 !important;
+        line-height: 1.25 !important;
     }
 
     section[data-testid="stMain"] div[data-testid="stCaptionContainer"] p,
     section[data-testid="stMain"] .stCaption p,
     section[data-testid="stMain"] .stCaption {
         color: var(--text-subtitle) !important;
-        font-size: 0.88rem !important;
+        font-size: 0.9rem !important;
         font-weight: 500 !important;
-        margin-bottom: 0.4rem !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.5rem !important;
     }
 
     /* Section Headings Visual Hierarchy */
@@ -131,16 +139,17 @@ st.markdown("""
         font-size: 1.05rem !important;
         font-weight: 700 !important;
         color: var(--text-main) !important;
-        margin-bottom: 0.4rem !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.5rem !important;
     }
 
-    /* Card Boxes */
+    /* Card Boxes & Integrated Expander Containers */
     .card-box {
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
-        padding: 14px;
-        margin-bottom: 14px;
+        padding: 16px;
+        margin-bottom: 16px;
         box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
     
@@ -152,6 +161,37 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 8px;
+    }
+
+    /* Standardize stExpander to match Card Component system */
+    section[data-testid="stMain"] div[data-testid="stExpander"] {
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
+        margin-top: 12px !important;
+        margin-bottom: 16px !important;
+        overflow: hidden !important;
+    }
+
+    section[data-testid="stMain"] div[data-testid="stExpander"] details {
+        border: none !important;
+        background-color: var(--bg-surface) !important;
+        border-radius: var(--radius) !important;
+    }
+
+    section[data-testid="stMain"] div[data-testid="stExpander"] summary {
+        background-color: var(--bg-subtle) !important;
+        color: var(--text-main) !important;
+        font-weight: 600 !important;
+        border-bottom: 1px solid var(--border-color) !important;
+        padding: 10px 14px !important;
+        border-radius: var(--radius) var(--radius) 0 0 !important;
+    }
+
+    section[data-testid="stMain"] div[data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
+        padding: 14px !important;
+        background-color: var(--bg-surface) !important;
     }
     
     /* Badges & Metrics */
@@ -222,6 +262,20 @@ st.markdown("""
         border-color: var(--secondary-btn-border) !important;
     }
 
+    /* Normalized Button Height & Alignment across all buttons */
+    div.stButton > button,
+    button[data-testid="stBaseButton-primary"],
+    button[data-testid="stBaseButton-secondary"],
+    .stDownloadButton > button {
+        min-height: 42px !important;
+        height: 42px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 0.92rem !important;
+        padding: 0 16px !important;
+    }
+
     /* Selectbox Widget & Dropdown Popover Theme Styling */
     div[data-testid="stSelectbox"] label,
     div[data-testid="stSelectbox"] label p {
@@ -234,6 +288,9 @@ st.markdown("""
         color: var(--text-main) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: var(--radius) !important;
+        min-height: 42px !important;
+        display: flex !important;
+        align-items: center !important;
     }
 
     div[data-testid="stSelectbox"] div[data-baseweb="select"] div,
