@@ -1358,34 +1358,32 @@ quit;"""
             key="sas_input"
         )
 
-        with st.expander("📁 Upload .sas Source File"):
-            uploaded_sas_file = st.file_uploader("Choose a .sas file", type=["sas", "txt"], key="sas_file_input")
+        with st.expander("📁 SAS Source File", expanded=True):
+            st.caption("Upload the main SAS program to convert.")
+            uploaded_sas_file = st.file_uploader(
+                "Upload main .sas file",
+                type=["sas", "txt"],
+                key="sas_file_input"
+            )
             if uploaded_sas_file:
                 try:
                     sas_content = uploaded_sas_file.getvalue().decode("utf-8", errors="ignore")
                     st.session_state.sas_input = sas_content
-                    st.success("✅ SAS source code loaded from file!")
+                    st.success("✅ SAS main program loaded from file!")
                 except Exception as e:
                     st.error(f"Failed to read file: {e}")
 
-        # Macro Library Upload (shown if macros present or in expander)
-        if has_macros(sas_script):
-            st.info("🔧 Macros detected in your code!")
-            with st.expander("📁 Upload Macro Library Files (optional)", expanded=True):
-                macro_files = st.file_uploader(
-                    "Upload additional .sas macro files",
-                    type=["sas", "txt"],
-                    accept_multiple_files=True,
-                    key="macro_lib_files"
-                )
-        else:
-            with st.expander("📁 Upload Macro Library Files (optional)", expanded=False):
-                macro_files = st.file_uploader(
-                    "Upload additional .sas macro files",
-                    type=["sas", "txt"],
-                    accept_multiple_files=True,
-                    key="macro_lib_files_opt"
-                )
+        # Secondary Section: Supporting Macro Library Files (Optional, collapsed by default)
+        with st.expander("📁 Macro Library (Optional)", expanded=False):
+            st.caption("Upload supporting SAS macro definitions used by the program.")
+            macro_files = st.file_uploader(
+                "Upload supporting .sas macro files",
+                type=["sas", "txt"],
+                accept_multiple_files=True,
+                key="macro_lib_files"
+            )
+            if has_macros(sas_script):
+                st.info("🔧 Macros detected in your program!")
 
         # Expected SAS Outputs File Uploader (Only in Validate Mode)
         uploaded_csvs = st.session_state.uploaded_csvs
@@ -1471,6 +1469,7 @@ quit;"""
         # Display existing pipeline result code or empty placeholder
         results = st.session_state.get("pipeline_results", [])
         if results:
+            st.success(f"✅ All {len(results)} step(s) converted!")
             all_r_code = []
             for r in results:
                 fix_res = st.session_state.get("fix_results", {}).get(r["name"])
@@ -1562,84 +1561,86 @@ quit;"""
 
         # Mode 1: Convert Only Execution
         if mode == "Convert Only":
-            step_pattern = re.compile(
-                r"((?:data|proc)\s+.*?;.*?(?:run|quit);|%(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\s*(?:\([^)]*\))?\s*;)",
-                re.DOTALL | re.IGNORECASE
-            )
-            steps = step_pattern.findall(sas_script)
-            if not steps:
-                st.error("No valid SAS steps found.")
-                st.stop()
-
-            all_r = []
-            if has_path_b and _macro_defs and macro_result.get("r_functions"):
-                all_r.append("# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n")
-
-            known_tables = []
-            total_steps = len(steps)
-            prog = st.progress(0, text=f"Converting {total_steps} SAS step(s)...")
-            status = st.empty()
-            overall_start = time.time()
-            r_engine = RuleEngine(dialect=r_dialect)
-            conv_results = []
-
-            for i, step in enumerate(steps, 1):
-                step_lower = step.lower()
-                out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
-                sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
-
-                if step_lower.startswith("data"):
-                    stype = "DATA_STEP"
-                    sname = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"Step{i}"
-                elif step_lower.startswith("proc"):
-                    stype = "PROC_STEP"
-                    if out_name_match:
-                        sname = out_name_match.group(1).split('.')[-1].upper().strip()
-                    elif sort_inplace_match:
-                        sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
-                    else:
-                        sname = f"Step{i}"
-                else:
-                    stype = "MACRO_CALL"
-                    m_match = re.search(r"%(\w+)", step, re.I)
-                    sname = f"%{m_match.group(1).upper()}" if m_match else f"MACRO_CALL_{i}"
-
-                prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
-                status.markdown(f"⏳ **Converting Step {i}/{total_steps}** — `{sname}`")
-
-                step_start = time.time()
-                prog_step = ProgramStep(
-                    step_index=i, step_type=stype, name=sname,
-                    source_code=step, input_datasets=known_tables, output_datasets=[sname]
+            if not st.session_state.get("pipeline_run"):
+                step_pattern = re.compile(
+                    r"((?:data|proc)\s+.*?;.*?(?:run|quit);|%(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\s*(?:\([^)]*\))?\s*;)",
+                    re.DOTALL | re.IGNORECASE
                 )
-                r_rule_code, conf, method = r_engine.translate_step(prog_step)
+                steps = step_pattern.findall(sas_script)
+                if not steps:
+                    st.error("No valid SAS steps found.")
+                    st.stop()
 
-                rule_valid = False
-                if r_rule_code and conf >= 0.85:
-                    if stype == "MACRO_CALL" or (is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code)):
-                        if stype == "MACRO_CALL": rule_valid = True
+                all_r = []
+                if has_path_b and _macro_defs and macro_result.get("r_functions"):
+                    all_r.append("# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n")
+
+                known_tables = []
+                total_steps = len(steps)
+                prog = st.progress(0, text=f"Converting {total_steps} SAS step(s)...")
+                status = st.empty()
+                overall_start = time.time()
+                r_engine = RuleEngine(dialect=r_dialect)
+                conv_results = []
+
+                for i, step in enumerate(steps, 1):
+                    step_lower = step.lower()
+                    out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
+                    sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
+
+                    if step_lower.startswith("data"):
+                        stype = "DATA_STEP"
+                        sname = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"Step{i}"
+                    elif step_lower.startswith("proc"):
+                        stype = "PROC_STEP"
+                        if out_name_match:
+                            sname = out_name_match.group(1).split('.')[-1].upper().strip()
+                        elif sort_inplace_match:
+                            sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
                         else:
-                            from semantic_validator import validate_semantic_completeness
-                            is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
-                            if is_c: rule_valid = True
+                            sname = f"Step{i}"
+                    else:
+                        stype = "MACRO_CALL"
+                        m_match = re.search(r"%(\w+)", step, re.I)
+                        sname = f"%{m_match.group(1).upper()}" if m_match else f"MACRO_CALL_{i}"
 
-                if rule_valid: rc = r_rule_code
-                else: rc = call_llm_api(step, [], known_tables, r_dialect, initial_candidate=r_rule_code)
+                    prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
+                    status.markdown(f"⏳ **Converting Step {i}/{total_steps}** — `{sname}`")
 
-                elapsed = time.time() - step_start
-                all_r.append(f"# --- {sname} ---\n{rc}\n")
-                if sname not in known_tables: known_tables.append(sname)
+                    step_start = time.time()
+                    prog_step = ProgramStep(
+                        step_index=i, step_type=stype, name=sname,
+                        source_code=step, input_datasets=known_tables, output_datasets=[sname]
+                    )
+                    r_rule_code, conf, method = r_engine.translate_step(prog_step)
 
-                conv_results.append({
-                    "name": sname, "step": step, "r_code": rc, "r_output": None,
-                    "error": None, "comparison": None, "elapsed_total": elapsed,
-                    "elapsed_llm": elapsed, "elapsed_exec": 0.0, "r_log": "Convert Only Mode"
-                })
+                    rule_valid = False
+                    if r_rule_code and conf >= 0.85:
+                        if stype == "MACRO_CALL" or (is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code)):
+                            if stype == "MACRO_CALL": rule_valid = True
+                            else:
+                                from semantic_validator import validate_semantic_completeness
+                                is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
+                                if is_c: rule_valid = True
 
-            prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
-            status.empty()
-            st.session_state.pipeline_results = conv_results
-            st.session_state.pipeline_run = True
+                    if rule_valid: rc = r_rule_code
+                    else: rc = call_llm_api(step, [], known_tables, r_dialect, initial_candidate=r_rule_code)
+
+                    elapsed = time.time() - step_start
+                    all_r.append(f"# --- {sname} ---\n{rc}\n")
+                    if sname not in known_tables: known_tables.append(sname)
+
+                    conv_results.append({
+                        "name": sname, "step": step, "r_code": rc, "r_output": None,
+                        "error": None, "comparison": None, "elapsed_total": elapsed,
+                        "elapsed_llm": elapsed, "elapsed_exec": 0.0, "r_log": "Convert Only Mode"
+                    })
+
+                prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
+                status.empty()
+                st.session_state.pipeline_results = conv_results
+                st.session_state.pipeline_run = True
+                st.rerun()
 
         # Mode 2: Convert + Execute + Validate Execution
         else:
@@ -1656,6 +1657,7 @@ quit;"""
                     st.session_state.pipeline_results = results
                     st.session_state.pipeline_run = True
                     st.session_state.retry_step = None
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Pipeline crashed: {str(e)}")
                     st.stop()
