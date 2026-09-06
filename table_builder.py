@@ -440,9 +440,12 @@ def show_code_diff(old_code, new_code):
 # MAIN TAB RENDERER
 # ─────────────────────────────────────────────
 def render_table_builder_tab():
-    st.title("🏥 Clinical Tables")
-    st.caption("Upload data → configure table → get R code + downloadable table")
-    st.divider()
+    st.markdown("""
+        <div class="main-header">
+            <h2>🏥 Clinical Tables</h2>
+            <p class="subtitle">Upload ADaM data → configure table specification → generate R code (gt/gtsummary) → preview HTML & download</p>
+        </div>
+    """, unsafe_allow_html=True)
 
     # ── Session state init ───────────────────────────────────────────────
     if "tbl_initialized" not in st.session_state:
@@ -481,10 +484,10 @@ def render_table_builder_tab():
 
     gemini_client, groq_client = _make_clients()
 
-    # ── Data upload ──────────────────────────────────────────────────────
-    st.subheader("📁 Upload Data")
+    # ── Data upload card ──────────────────────────────────────────────────
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">1</span> Input Clinical Dataset</h3>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
-        "Upload CSV or Excel",
+        "Upload ADaM / Clinical Dataset (CSV or Excel)",
         type=["csv", "xlsx", "xls"],
         key="tbl_upload"
     )
@@ -497,10 +500,11 @@ def render_table_builder_tab():
             df = pd.read_excel(uploaded) if ext in (".xlsx", ".xls") else pd.read_csv(uploaded)
             st.session_state["tbl_df"] = df
             st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
-            with st.expander("👁️ Preview Data", expanded=False):
+            with st.expander("👁️ Preview Raw Data", expanded=False):
                 st.dataframe(df.head(5), use_container_width=True)
         except Exception as e:
             st.error(f"Failed to load file: {e}")
+            st.markdown('</div>', unsafe_allow_html=True)
             return
 
     with st.expander("Or paste CSV text manually"):
@@ -514,26 +518,25 @@ def render_table_builder_tab():
                 st.dataframe(df.head(5), use_container_width=True)
             except Exception as e:
                 st.error(f"Parse error: {e}")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if df is None:
-        st.info("👆 Upload a CSV or Excel file or paste CSV text to get started.")
+        st.info("👆 Upload a CSV or Excel file or paste CSV text to configure table options.")
         return
 
-    st.divider()
-
-    # ── Configure table ──────────────────────────────────────────────────
-    st.subheader("⚙️ Configure Table")
+    # ── Configure table card ──────────────────────────────────────────────
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">2</span> Table Configuration</h3>', unsafe_allow_html=True)
     cols          = df.columns.tolist()
     numeric_cols  = df.select_dtypes(include="number").columns.tolist()
     all_with_none = ["None"] + cols
 
     r1a, r1b, r1c = st.columns(3)
     with r1a:
-        table_type = st.selectbox("📋 Table Type", TABLE_TYPES)
+        table_type = st.selectbox("📋 Table Specification Type", TABLE_TYPES)
     with r1b:
-        group_col = st.selectbox("👥 Group / Treatment Col", all_with_none, index=0)
+        group_col = st.selectbox("👥 Group / Treatment Column", all_with_none, index=0)
     with r1c:
-        subj_col = st.selectbox("🔑 Subject ID Col", all_with_none, index=0)
+        subj_col = st.selectbox("🔑 Subject ID Column", all_with_none, index=0)
 
     if "Table 1" in table_type:
         r2a, r2b, r2c = st.columns([2, 1, 1])
@@ -544,7 +547,7 @@ def render_table_builder_tab():
                 default=[c for c in cols if c not in exclude]
             )
         with r2b:
-            stat_option = st.selectbox("📐 Continuous Stats", STAT_OPTIONS)
+            stat_option = st.selectbox("📐 Continuous Stats Format", STAT_OPTIONS)
         with r2c:
             title = st.text_input("📝 Table Title", value="Table 1 — Baseline Characteristics")
         r3a, r3b, r3c = st.columns(3)
@@ -570,9 +573,9 @@ def render_table_builder_tab():
     elif "Adverse Events" in table_type:
         r2a, r2b, r2c = st.columns(3)
         with r2a:
-            soc_col = st.selectbox("🏷️ SOC Column", cols)
+            soc_col = st.selectbox("🏷️ System Organ Class (SOC)", cols)
         with r2b:
-            pt_col  = st.selectbox("💊 PT Column", cols)
+            pt_col  = st.selectbox("💊 Preferred Term (PT)", cols)
         with r2c:
             title   = st.text_input("📝 Table Title", value="Adverse Events Summary")
 
@@ -584,73 +587,18 @@ def render_table_builder_tab():
             "subj_col":   subj_col  if subj_col  != "None" else "USUBJID",
             "title":      title,
         }
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── Output (shown above custom box) ─────────────────────────────────
-    if st.session_state.get("tbl_r_code"):
-        st.subheader("📤 Output")
-        out1, out2 = st.tabs(["📊 Table", "💻 R Code"])
-
-        with out1:
-            if st.session_state.get("tbl_html"):
-                st.components.v1.html(
-                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
-                    height=600, scrolling=True
-                )
-                st.download_button(
-                    "⬇️ Download HTML",
-                    data=st.session_state["tbl_html"].encode("utf-8"),
-                    file_name="clinical_table.html",
-                    mime="text/html",
-                )
-            elif st.session_state.get("tbl_error"):
-                st.error(st.session_state["tbl_error"])
-
-        with out2:
-            edited_code = st.text_area(
-                "Edit R Code",
-                value=st.session_state.get("tbl_r_code", ""),
-                height=300,
-                key=f"tbl_edited_{hash(st.session_state.get('tbl_r_code', ''))}"
-            )
-            b1, b2 = st.columns(2)
-            with b1:
-                run_edited = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
-            with b2:
-                st.download_button(
-                    "⬇️ Download R Code", data=edited_code,
-                    file_name="clinical_table.R", mime="text/plain",
-                    use_container_width=True
-                )
-            if run_edited:
-                with st.spinner("Running updated code..."):
-                    try:
-                        html_str, r_log = execute_table(edited_code, st.session_state["tbl_df"])
-                        st.session_state["tbl_html"]   = html_str
-                        st.session_state["tbl_log"]    = r_log
-                        st.session_state["tbl_r_code"] = edited_code
-                        st.session_state["tbl_error"]  = None
-                        st.rerun()
-                    except RuntimeError as e:
-                        st.error(str(e))
-
-            if st.session_state.get("tbl_log"):
-                with st.expander("📋 R Log"):
-                    st.code(st.session_state["tbl_log"], language="bash")
-
-    st.divider()
-
-    # ── Custom enhancement box ───────────────────────────────────────────
+    # ── Custom Enhancement & Action card ─────────────────────────────────
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">3</span> Actions & Enhancements</h3>', unsafe_allow_html=True)
     custom_request = st.text_area(
-        "✨ Custom Enhancement (optional)",
-        placeholder="e.g. Add footnote 'Values are mean (SD)', bold p-values < 0.05, add spanning header, italicize labels...\n⚠️ Note: Cannot add new columns or ID variables (e.g. USUBJID)",
+        "✨ Custom Enhancement Prompt (optional)",
+        placeholder="e.g. Add footnote 'Values are mean (SD)', bold p-values < 0.05, add spanning header, italicize labels...",
         height=80,
         key="tbl_custom_text",
     )
 
-    # ── Generate button ──────────────────────────────────────────────────
-    if st.button("🏥 Generate Table", type="primary", use_container_width=True):
+    if st.button("🏥 Generate Clinical Table", type="primary", use_container_width=True):
 
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
@@ -744,12 +692,13 @@ def render_table_builder_tab():
                 st.error(f"Code generation error: {e}")
                 st.code(traceback.format_exc())
                 st.stop()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ── R execution block ────────────────────────────────────────────────
     # Outside Generate button block — fires on every rerun when flagged
     if st.session_state.get("_tbl_run_now") and not st.session_state.get("tbl_r_code_pending"):
         st.session_state["_tbl_run_now"] = False
-        with st.spinner("⚙️ Running R..."):
+        with st.spinner("⚙️ Executing R code with GT..."):
             try:
                 html_str, r_log = execute_table(
                     st.session_state["tbl_r_code"],
@@ -766,6 +715,7 @@ def render_table_builder_tab():
     # ── Review block ─────────────────────────────────────────────────────
     # Outside Generate button block — persists across reruns
     if st.session_state.get("tbl_r_code_pending"):
+        st.markdown('<div class="card-box">', unsafe_allow_html=True)
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
         show_code_diff(
@@ -777,8 +727,6 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                # Save to both tbl_r_code AND tbl_accepted_code
-                # tbl_accepted_code is NEVER touched by Generate — only by Apply
                 accepted = st.session_state["tbl_r_code_pending"]
                 st.session_state["tbl_r_code"]          = accepted
                 st.session_state["tbl_accepted_code"]   = accepted
@@ -824,3 +772,58 @@ def render_table_builder_tab():
                     f"<div style='background:white; padding:10px;'>{st.session_state['tbl_preview_html']}</div>",
                     height=400, scrolling=True
                 )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Output Card (shown when R code is present) ────────────────────────
+    if st.session_state.get("tbl_r_code"):
+        st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">4</span> Output & R Execution</h3>', unsafe_allow_html=True)
+        out1, out2 = st.tabs(["📊 HTML Table Preview", "💻 R Code Editor"])
+
+        with out1:
+            if st.session_state.get("tbl_html"):
+                st.components.v1.html(
+                    f"<div style='background:white; padding:15px; border-radius:6px; border:1px solid #e2e8f0;'>{st.session_state['tbl_html']}</div>",
+                    height=600, scrolling=True
+                )
+                st.download_button(
+                    "⬇️ Download HTML Table",
+                    data=st.session_state["tbl_html"].encode("utf-8"),
+                    file_name="clinical_table.html",
+                    mime="text/html",
+                )
+            elif st.session_state.get("tbl_error"):
+                st.error(st.session_state["tbl_error"])
+
+        with out2:
+            edited_code = st.text_area(
+                "Edit R Code",
+                value=st.session_state.get("tbl_r_code", ""),
+                height=300,
+                key=f"tbl_edited_{hash(st.session_state.get('tbl_r_code', ''))}"
+            )
+            b1, b2 = st.columns(2)
+            with b1:
+                run_edited = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
+            with b2:
+                st.download_button(
+                    "⬇️ Download R Code", data=edited_code,
+                    file_name="clinical_table.R", mime="text/plain",
+                    use_container_width=True
+                )
+            if run_edited:
+                with st.spinner("Running updated code..."):
+                    try:
+                        html_str, r_log = execute_table(edited_code, st.session_state["tbl_df"])
+                        st.session_state["tbl_html"]   = html_str
+                        st.session_state["tbl_log"]    = r_log
+                        st.session_state["tbl_r_code"] = edited_code
+                        st.session_state["tbl_error"]  = None
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+
+            if st.session_state.get("tbl_log"):
+                with st.expander("📋 R Console Log"):
+                    st.code(st.session_state["tbl_log"], language="bash")
+        st.markdown('</div>', unsafe_allow_html=True)
+

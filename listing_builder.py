@@ -276,9 +276,12 @@ def clear_listing():
 # MAIN RENDERER
 # ─────────────────────────────────────────────
 def render_listing_builder_tab():
-    st.title("📋 Clinical Listings")
-    st.caption("Upload data → configure listing → get formatted R code + downloadable listing")
-    st.divider()
+    st.markdown("""
+        <div class="main-header">
+            <h2>📋 Clinical Listings</h2>
+            <p class="subtitle">Upload dataset → configure listing format & variables → generate R code (flextable) → preview HTML/Docx & download</p>
+        </div>
+    """, unsafe_allow_html=True)
 
     # ── Session state init ──
     for key, default in {
@@ -300,8 +303,8 @@ def render_listing_builder_tab():
 
     gemini_client, groq_client = _make_clients()
 
-    # ── Data upload ──
-    st.subheader("📁 Upload Data")
+    # ── Data upload card ──
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">1</span> Input Clinical Dataset</h3>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
         "Upload CSV or Excel",
         type=["csv", "xlsx", "xls"],
@@ -316,10 +319,11 @@ def render_listing_builder_tab():
             df = pd.read_excel(uploaded) if ext in (".xlsx", ".xls") else pd.read_csv(uploaded)
             st.session_state["lst_df"] = df
             st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
-            with st.expander("👁️ Preview Data", expanded=False):
+            with st.expander("👁️ Preview Raw Data", expanded=False):
                 st.dataframe(df.head(5), use_container_width=True)
         except Exception as e:
             st.error(f"Failed to load file: {e}")
+            st.markdown('</div>', unsafe_allow_html=True)
             return
 
     with st.expander("Or paste CSV text manually"):
@@ -332,15 +336,14 @@ def render_listing_builder_tab():
                 st.dataframe(df.head(5), use_container_width=True)
             except Exception as e:
                 st.error(f"Parse error: {e}")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if df is None:
-        st.info("👆 Upload a CSV or Excel file or paste CSV text to get started.")
+        st.info("👆 Upload a CSV or Excel file or paste CSV text to configure listing options.")
         return
 
-    st.divider()
-
-    # ── Configure listing ──
-    st.subheader("⚙️ Configure Listing")
+    # ── Configure listing card ──
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">2</span> Listing Specification</h3>', unsafe_allow_html=True)
     cols = df.columns.tolist()
     all_with_none = ["None"] + cols
 
@@ -396,6 +399,7 @@ def render_listing_builder_tab():
 
     if not selected_cols:
         st.warning("Please select at least one column to display.")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
 
     selections = {
@@ -411,90 +415,20 @@ def render_listing_builder_tab():
         "decimal_places": decimal_places,
         "output_format":  output_format,
     }
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── Output ──
-    if st.session_state.get("lst_r_code"):
-        st.subheader("📤 Output")
-        out1, out2 = st.tabs(["📋 Listing", "💻 R Code"])
-
-        with out1:
-            if st.session_state.get("lst_html"):
-                import streamlit.components.v1 as components
-                components.html(
-                    f"<div style='background:white; padding:10px;'>{st.session_state['lst_html']}</div>",
-                    height=600,
-                    scrolling=True
-                )
-                if st.session_state.get("lst_output_bytes"):
-                    ext  = st.session_state.get("lst_output_ext", ".html")
-                    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else "text/html"
-                    st.download_button(
-                        f"⬇️ Download Listing",
-                        data=st.session_state["lst_output_bytes"],
-                        file_name=f"listing{ext}",
-                        mime=mime,
-                        use_container_width=True
-                    )
-            elif st.session_state.get("lst_error"):
-                st.error(st.session_state["lst_error"])
-
-        with out2:
-            edited_code = st.text_area(
-                "Edit R Code",
-                value=st.session_state.get("lst_r_code", ""),
-                height=300,
-                key=f"lst_edited_{hash(st.session_state.get('lst_r_code', ''))}"
-            )
-            btn1, btn2 = st.columns(2)
-            with btn1:
-                run_edited = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
-            with btn2:
-                st.download_button(
-                    "⬇️ Download R Code",
-                    data=edited_code,
-                    file_name="listing.R",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-            if run_edited:
-                with st.spinner("Running..."):
-                    try:
-                        html_str, out_bytes, ext, r_log = execute_listing(
-                            edited_code,
-                            st.session_state["lst_df"],
-                            st.session_state.get("lst_output_format", "HTML")
-                        )
-                        st.session_state["lst_html"]         = html_str
-                        st.session_state["lst_output_bytes"] = out_bytes
-                        st.session_state["lst_output_ext"]   = ext
-                        st.session_state["lst_log"]          = r_log
-                        st.session_state["lst_r_code"]       = edited_code
-                        st.session_state["lst_accepted_code"] = edited_code
-                        st.rerun()
-                    except RuntimeError as e:
-                        st.error(str(e))
-
-            log = st.session_state.get("lst_log", "")
-            if log:
-                with st.expander("📋 R Log"):
-                    st.code(log, language="bash")
-
-    st.divider()
-
-    # ── Custom enhancement ──
+    # ── Actions & Enhancement card ──
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">3</span> Actions & Custom Enhancement</h3>', unsafe_allow_html=True)
     custom_request = st.text_area(
-        "✨ Custom Enhancement (optional)",
+        "✨ Custom Enhancement Prompt (optional)",
         placeholder="e.g. Highlight rows where FLAG='HIGH' in red, bold subject column, add border between groups...",
         height=80,
         key="lst_custom_text"
     )
 
-    # ── Generate button ──
     btn_gen, btn_clr = st.columns([4, 1])
     with btn_gen:
-        generate = st.button("📋 Generate Listing", type="primary", use_container_width=True)
+        generate = st.button("📋 Generate Clinical Listing", type="primary", use_container_width=True)
     with btn_clr:
         st.button("🗑️ Clear", on_click=clear_listing, use_container_width=True)
 
@@ -553,11 +487,12 @@ def render_listing_builder_tab():
                 st.error(f"Code generation error: {e}")
                 st.code(traceback.format_exc())
                 st.stop()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ── R execution block ──
     if st.session_state.get("_lst_run_now") and not st.session_state.get("lst_r_code_pending"):
         st.session_state["_lst_run_now"] = False
-        with st.spinner("⚙️ Running R..."):
+        with st.spinner("⚙️ Executing R code with flextable..."):
             try:
                 html_str, out_bytes, ext, r_log = execute_listing(
                     st.session_state["lst_r_code"],
@@ -577,6 +512,7 @@ def render_listing_builder_tab():
 
     # ── Review block ──
     if st.session_state.get("lst_r_code_pending"):
+        st.markdown('<div class="card-box">', unsafe_allow_html=True)
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
         show_code_diff(
@@ -631,3 +567,73 @@ def render_listing_builder_tab():
                     f"<div style='background:white; padding:10px;'>{st.session_state['lst_preview_html']}</div>",
                     height=400, scrolling=True
                 )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Output Card ──
+    if st.session_state.get("lst_r_code"):
+        st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">4</span> Output & R Execution</h3>', unsafe_allow_html=True)
+        out1, out2 = st.tabs(["📋 Listing Preview", "💻 R Code Editor"])
+
+        with out1:
+            if st.session_state.get("lst_html"):
+                import streamlit.components.v1 as components
+                components.html(
+                    f"<div style='background:white; padding:15px; border-radius:6px; border:1px solid #e2e8f0;'>{st.session_state['lst_html']}</div>",
+                    height=600,
+                    scrolling=True
+                )
+                if st.session_state.get("lst_output_bytes"):
+                    ext  = st.session_state.get("lst_output_ext", ".html")
+                    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else "text/html"
+                    st.download_button(
+                        f"⬇️ Download Listing ({ext})",
+                        data=st.session_state["lst_output_bytes"],
+                        file_name=f"listing{ext}",
+                        mime=mime,
+                        use_container_width=True
+                    )
+            elif st.session_state.get("lst_error"):
+                st.error(st.session_state["lst_error"])
+
+        with out2:
+            edited_code = st.text_area(
+                "Edit R Code",
+                value=st.session_state.get("lst_r_code", ""),
+                height=300,
+                key=f"lst_edited_{hash(st.session_state.get('lst_r_code', ''))}"
+            )
+            btn1, btn2 = st.columns(2)
+            with btn1:
+                run_edited = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
+            with btn2:
+                st.download_button(
+                    "⬇️ Download R Code",
+                    data=edited_code,
+                    file_name="listing.R",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            if run_edited:
+                with st.spinner("Running..."):
+                    try:
+                        html_str, out_bytes, ext, r_log = execute_listing(
+                            edited_code,
+                            st.session_state["lst_df"],
+                            st.session_state.get("lst_output_format", "HTML")
+                        )
+                        st.session_state["lst_html"]         = html_str
+                        st.session_state["lst_output_bytes"] = out_bytes
+                        st.session_state["lst_output_ext"]   = ext
+                        st.session_state["lst_log"]          = r_log
+                        st.session_state["lst_r_code"]       = edited_code
+                        st.session_state["lst_accepted_code"] = edited_code
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+
+            log = st.session_state.get("lst_log", "")
+            if log:
+                with st.expander("📋 R Console Log"):
+                    st.code(log, language="bash")
+        st.markdown('</div>', unsafe_allow_html=True)
+

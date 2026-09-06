@@ -16,8 +16,6 @@ from sas_ast import ProgramStep
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
-st.warning("🚀 Phase 7 Architecture — Primary: Gemini (gemini-3.6-flash) | Fallback: Groq (llama-3.3-70b-versatile)")
-
 for key, default in {
     "sas_input": "",
     "upload_key": 0,
@@ -36,7 +34,9 @@ for key, default in {
     "graph_preview_png": None,
     "graph_r_code_pending": None,
     "graph_r_code_original": None,
-    "page": "🔄 SAS Converter"
+    "page": "🔄 SAS Converter",
+    "app_mode": "Convert Only",
+    "r_dialect": "Modern R (tidyverse)"
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -49,11 +49,82 @@ def clear_all():
     st.session_state.pipeline_run = False
     st.session_state.fix_results = {}
 
+# --- MODERN DEVELOPER-TOOL CUSTOM CSS ---
 st.markdown("""
     <style>
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
-    .step-card { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
+    :root {
+        --bg-app: #F8FAFC;
+        --bg-surface: #FFFFFF;
+        --bg-subtle: #F1F5F9;
+        --border-color: #E2E8F0;
+        --border-dark: #CBD5E1;
+        --text-main: #0F172A;
+        --text-muted: #64748B;
+        --primary: #2563EB;
+        --primary-hover: #1D4ED8;
+        --primary-light: #EFF6FF;
+        --success: #059669;
+        --success-bg: #ECFDF5;
+        --warning: #D97706;
+        --warning-bg: #FFFBEB;
+        --error: #DC2626;
+        --error-bg: #FEF2F2;
+        --radius: 8px;
+    }
+    
+    .stApp {
+        background-color: var(--bg-app);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    
+    /* Top Mode Bar Container */
+    .mode-bar-container {
+        background-color: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 12px 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    }
+    
+    /* Card Boxes */
+    .card-box {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 18px;
+        margin-bottom: 18px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    
+    .card-header-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--text-main);
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    /* Badges & Metrics */
+    .badge-pill {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+    }
+    .badge-success { background: var(--success-bg); color: var(--success); border: 1px solid #A7F3D0; }
+    .badge-info { background: var(--primary-light); color: var(--primary); border: 1px solid #BFDBFE; }
+    .badge-warning { background: var(--warning-bg); color: var(--warning); border: 1px solid #FDE68A; }
+    
+    /* Tabs Customization */
+    .stTabs [data-baseweb="tab-list"] { gap: 16px; border-bottom: 1px solid var(--border-color); }
+    .stTabs [data-baseweb="tab"] { height: 42px; font-weight: 600; font-size: 0.88rem; color: var(--text-muted); }
+    .stTabs [aria-selected="true"] { color: var(--primary) !important; border-bottom-color: var(--primary) !important; }
+    
     .timing-badge {
         display: inline-block;
         background: #f0f2f6;
@@ -596,6 +667,7 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
         "details": "All values match!" if not mismatches else f"{len(mismatches)} values differ.",
         "mismatches": mismatches
     }
+
 def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
     try:
         mismatch_info = ""
@@ -688,10 +760,10 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
             "error": None,
             "comparison": None,
             "is_final": (target_name == final_ds_name),
-            "elapsed_llm": None,     # ← NEW: time for LLM call
-            "elapsed_exec": None,    # ← NEW: time for R execution
-            "elapsed_total": None,   # ← NEW: total time for the step   
-            "r_log": None,           # ← NEW: log 
+            "elapsed_llm": None,     # LLM call timing
+            "elapsed_exec": None,    # R execution timing
+            "elapsed_total": None,   # Total step timing
+            "r_log": None,           # Execution log output
         }
 
         # Update progress bar
@@ -734,7 +806,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                 res_entry["elapsed_llm"] = time.time() - llm_start
                 res_entry["r_code"] = r_code
 
-# Time the R execution — with 1 auto-retry on failure
+                # Time the R execution — with 1 auto-retry on failure
                 exec_start = time.time()
                 try:
                     out_df, r_log = run_r_subprocess(r_code, active_df, work_library)
@@ -781,47 +853,39 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
         status_text.empty()
 
     return pipeline_results
-    
-with st.sidebar:
-    import streamlit as st
 
-    st.markdown("**🗂️ Navigation**")
-    st.markdown("---")
+
+# --- SIDEBAR NAVIGATION & SETTINGS ---
+with st.sidebar:
+    st.markdown("### 🗂️ Navigation")
+    st.divider()
     
     if "selected_tool" not in st.session_state:
         st.session_state.selected_tool = "🔄 SAS Converter"
     
-    # Main tools
     top_tools = ["🔄 SAS Converter", "📊 Graph Builder"]
-    
     top_selection = st.radio(
-        "main",
+        "main_nav",
         top_tools,
         index=top_tools.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools else None,
         label_visibility="collapsed"
     )
     
     st.divider()
+    st.markdown("### 📋 Clinical Tools")
     
-    # Clinical group — label replaces repeating "Clinical" in each item
-    st.markdown("**📋 Clinical**")
-    
-    bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs", "📋 TLF from Shell"]
+    bottom_tools_display = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs", "📋 TLF from Shell"]
     bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs", "📋 TLF from Shell"]
     
-    if st.session_state.selected_tool in bottom_tools_actual:
-        bottom_idx = bottom_tools_actual.index(st.session_state.selected_tool)
-    else:
-        bottom_idx = None
-    
+    bottom_idx = bottom_tools_actual.index(st.session_state.selected_tool) if st.session_state.selected_tool in bottom_tools_actual else None
     bottom_selection_display = st.radio(
-        "clinical",
+        "clinical_nav",
         bottom_tools_display,
         index=bottom_idx,
         label_visibility="collapsed"
     )
     
-    # Sync selection
+    # Sync navigation state
     if top_selection and top_selection != st.session_state.selected_tool:
         st.session_state.selected_tool = top_selection
         st.rerun()
@@ -835,10 +899,30 @@ with st.sidebar:
     st.divider()
     
     if page == "🔄 SAS Converter":
-        st.header("⚙️ Settings")
-        mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
+        st.markdown("### ⚙️ Settings")
+        
+        # Sync sidebar choices with session state
+        sb_mode = st.radio(
+            "App Mode", 
+            ["Convert Only", "Convert + Execute + Validate"],
+            index=0 if st.session_state.get("app_mode") == "Convert Only" else 1,
+            key="sb_app_mode"
+        )
+        if sb_mode != st.session_state.get("app_mode"):
+            st.session_state["app_mode"] = sb_mode
+            st.rerun()
+            
         st.divider()
-        r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
+        sb_dialect = st.radio(
+            "R Dialect", 
+            ["Base R", "Modern R (tidyverse)"],
+            index=0 if st.session_state.get("r_dialect") == "Base R" else 1,
+            key="sb_r_dialect"
+        )
+        if sb_dialect != st.session_state.get("r_dialect"):
+            st.session_state["r_dialect"] = sb_dialect
+            st.rerun()
+            
         st.divider()
 
         # ── R ENVIRONMENT DIAGNOSTICS ──
@@ -857,9 +941,10 @@ with st.sidebar:
             else:
                 st.error("❌ Rscript NOT found in system PATH.")
                 st.caption("Ensure `packages.txt` includes `r-base` when deploying to Streamlit Cloud.")
+
         st.divider()
-        st.header("📖 How to use")
-        st.markdown("""
+        with st.expander("📖 How to Use"):
+            st.markdown("""
 **Convert Only:**
 1. Paste SAS code → Run
 2. Download R script
@@ -872,9 +957,9 @@ with st.sidebar:
    - *Single file auto-maps to final step!*
 3. Run → see ✅ MATCH / ❌ MISMATCH
 """)
-        st.divider()
-        st.header("✨ What this app does")
-        st.markdown("""
+
+        with st.expander("✨ What this app does"):
+            st.markdown("""
 🔄 Converts SAS code to R automatically
 ✅ Executes & validates R output
 🔧 Auto-fixes R errors on failure
@@ -883,9 +968,9 @@ with st.sidebar:
 ⏱️ Per-step timing metrics
 📥 Downloads full R script
 """)
-        st.divider()
-        st.header("📋 Supported SAS")
-        st.markdown("""
+
+        with st.expander("📋 Supported SAS Statements"):
+            st.markdown("""
 ✅ DATA step (SET, IF/ELSE, mutate)
 ✅ PROC SORT
 ✅ PROC MEANS
@@ -893,14 +978,9 @@ with st.sidebar:
 ✅ PROC SQL (JOIN, GROUP BY, HAVING)
 ✅ PROC TRANSPOSE
 """)
-        st.divider()
-        st.header("🔜 Coming Soon")
-        st.markdown("""
-🔶 SAS Macros *(in development)*
-""")
-        st.divider()
-        st.header("💡 Tips")
-        st.markdown("""
+
+        with st.expander("💡 Tips & Hints"):
+            st.markdown("""
 - Name CSV same as SAS dataset
 - Single CSV auto-maps to final step
 - Use **Modern R** for cleaner code
@@ -909,7 +989,7 @@ with st.sidebar:
         st.caption("Built with Gemini + Groq + Rscript")
 
     elif page == "📋 TLF from Shell":
-        st.header("📋 TLF from Shell")
+        st.markdown("### 📋 TLF from Shell")
         st.markdown("""
 **How to use:**
 1. Paste or upload a mock shell
@@ -924,16 +1004,10 @@ with st.sidebar:
 ▶️ Execute R  
 ✅ Validate output  
 🔧 Auto-fix & retry (up to 3x)
-
----
-**Supported outputs:**
-- Tables → HTML (gt)
-- Listings → plain text
-- Figures → PNG (ggplot2)
 """)
         st.caption("Powered by Gemini + Groq + LangGraph-style pipeline")
     elif page == "📊 Graph Builder":
-        st.header("📊 Graph Builder")
+        st.markdown("### 📊 Graph Builder")
         st.markdown("""
 **How to use:**
 1. Upload CSV or Excel
@@ -941,165 +1015,287 @@ with st.sidebar:
 3. Click Generate Graph
 4. Edit code if needed
 5. Download PNG or R code
-
----
-**Supported Charts:**
-📊 Bar Chart
-📈 Line Chart
-🔵 Scatter Plot
-📉 Histogram
-📦 Box Plot
-🥧 Pie Chart
-🌊 Area Chart
-
----
-**✨ Custom Enhancement:**
-- *"move legend to bottom"*
-- *"use dark theme"*
-- *"add trend line"*
-
----
-**💡 Tips:**
-- Color By = grouped bars
-- Sort bars by value
-- Show Values = labels on bars
 """)
         st.caption("Powered by Groq + ggplot2")
-# --- STREAMLIT UI ---
+
+
+# --- MAIN WORKSPACE UI ---
+
 if page == "🔄 SAS Converter":
-  st.title("🔄 Smart SAS to R Converter")
-  st.caption("Groq Llama 3.3 70B | Executes R via Rscript | Compares output vs SAS expected")
-  st.divider()
-     
-  # --- SAS INPUT ---
-  st.subheader("📋 SAS Code")
-  sas_script = st.text_area(
-      "sas", height=250, label_visibility="collapsed",
-      placeholder="Paste your SAS code here...",
-      value=st.session_state.sas_input,
-      key="sas_input"
-  )
-  
-  # --- FILE UPLOAD — only shown in validate mode ---
-  uploaded_csvs = st.session_state.uploaded_csvs
-  
-  if mode == "Convert + Execute + Validate":
-      st.divider()
-      st.subheader("📊 Expected SAS Outputs")
-      st.caption("Upload CSV or Excel files. The app auto-maps a single uploaded file to the final step.")
-  
-      # ── NEW: Accept both CSV and Excel ──
-      uploaded = st.file_uploader(
-          "Upload CSV or Excel files",
-          type=["csv", "xlsx", "xls"],          # ← ADDED xlsx/xls
-          accept_multiple_files=True,
-          key="uploader_" + str(st.session_state.get("upload_key", 0))
-      )
-  
-      if uploaded:
-          st.session_state.uploaded_csvs = {}
-          uploaded_csvs = st.session_state.uploaded_csvs
-          cols = st.columns(min(len(uploaded), 3))
-  
-          for i, f in enumerate(uploaded):
-              name = os.path.splitext(f.name)[0].upper().strip()
-              ext = os.path.splitext(f.name)[1].lower()
-  
-              try:
-                  # ── Route by extension ──
-                  if ext in (".xlsx", ".xls"):
-                      # Let user pick sheet if multiple sheets exist
-                      xls = pd.ExcelFile(f)
-                      sheet_names = xls.sheet_names
-  
-                      if len(sheet_names) > 1:
-                          f.seek(0)
-                          chosen_sheet = st.selectbox(
-                              f"📋 Sheet for **{f.name}**",
-                              options=sheet_names,
-                              key=f"sheet_{name}_{i}"
-                          )
-                          f.seek(0)
-                          df = safe_read_excel(f, sheet_name=chosen_sheet)
-                      else:
-                          f.seek(0)
-                          df = safe_read_excel(f, sheet_name=0)
-                  else:
-                      df = safe_read_csv(f)
-  
-                  uploaded_csvs[name] = df
-                  st.session_state.uploaded_csvs[name] = df
-  
-                  with cols[i % 3]:
-                      icon = "📗" if ext in (".xlsx", ".xls") else "📄"
-                      st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
-                      st.dataframe(df, use_container_width=True, height=140)
-  
-              except Exception as e:
-                  st.error(f"Failed to load {name}: {str(e)}")
-  
-      with st.expander("Or paste CSV text manually"):
-          manual_csv = st.text_area(
-              "Paste CSV here", height=100,
-              key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
-          )
-          if manual_csv:
-              try:
-                  df = pd.read_csv(io.StringIO(manual_csv))
-                  uploaded_csvs["MANUAL_INPUT"] = df
-                  st.session_state.uploaded_csvs["MANUAL_INPUT"] = df
-                  st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
-                  st.dataframe(df, height=140)
-              except Exception as e:
-                  st.error(f"Parse error: {e}")
-  
-  # --- RUN / CLEAR BUTTONS ---
-  # Show macro library uploader only if macros detected
-  if has_macros(sas_script):
-    st.info("🔧 Macros detected in your code!")
-    with st.expander("📁 Upload Macro Library Files (optional)"):
-        macro_files = st.file_uploader(
-            "Upload additional .sas macro files",
-            type=["sas", "txt"],
-            accept_multiple_files=True,
-            key="macro_lib_files"
-        )
-  else:
-    macro_files = []
-  st.divider()
-  col_run, col_clear = st.columns([5, 1])
-  with col_run:
-      run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
-  with col_clear:
-      st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
-  
-  # --- MAIN LOGIC ---
-  if run_btn:
-      st.session_state.pipeline_run = False  # force fresh run
-      st.session_state.fix_results = {}
-      st.session_state.retry_counts = {}
+    # ── Modern Header ──
+    c_head1, c_head2 = st.columns([3, 1])
+    with c_head1:
+        st.title("🔄 SAS → R Converter")
+        st.caption("Modernize SAS programs to production-ready R (tidyverse & Base R)")
+    with c_head2:
+        st.markdown("<div style='text-align:right; margin-top:10px;'><span class='badge-pill badge-info'>Gemini + Groq Router</span></div>", unsafe_allow_html=True)
+    
+    st.divider()
 
-  if run_btn or st.session_state.get("pipeline_run"):
-        raw_sas_input = sas_script
+    # ── Mode & Dialect Controls Bar ──
+    mode = st.session_state.get("app_mode", "Convert Only")
+    r_dialect = st.session_state.get("r_dialect", "Modern R (tidyverse)")
+
+    with st.container():
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            selected_mode = st.radio(
+                "Conversion Mode",
+                ["Convert Only", "Convert + Execute + Validate"],
+                index=0 if mode == "Convert Only" else 1,
+                horizontal=True,
+                key="top_app_mode"
+            )
+            if selected_mode != st.session_state.get("app_mode"):
+                st.session_state["app_mode"] = selected_mode
+                st.session_state["sb_app_mode"] = selected_mode
+                st.rerun()
+
+        with col_m2:
+            selected_dialect = st.radio(
+                "Target R Dialect",
+                ["Modern R (tidyverse)", "Base R"],
+                index=0 if "tidyverse" in r_dialect else 1,
+                horizontal=True,
+                key="top_r_dialect"
+            )
+            if selected_dialect != st.session_state.get("r_dialect"):
+                st.session_state["r_dialect"] = selected_dialect
+                st.session_state["sb_r_dialect"] = selected_dialect
+                st.rerun()
+
+    st.divider()
+
+    # ── Shared 2-Column Code Workspace ──
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.markdown("### 📋 SAS Source Code")
         
-        # Runtime diagnostic header (Phase 8.41)
-        with st.sidebar.expander("🔍 RUNTIME ENVIRONMENT DIAGNOSTIC", expanded=True):
-            st.markdown("""
-            - **APP FILE**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned/app.py`
-            - **LOCAL GIT SHA**: `61687e906d514d53a6b05d6154734a5e1467b763`
-            - **STATUS**: `Local Phase 8.41 Active (Uncommitted)`
-            - **DEPLOYMENT TARGET**: `https://sas-to-r-converter-engine.streamlit.app/`
-            - **PYTHON**: `3.9.13`
-            - **MACRO ARCHITECTURE**: `Phase 8.41 Hard Invariant Enforced`
-            """)
+        # Sample Preset Snippets
+        sample_presets = {
+            "Select Sample SAS Script...": "",
+            "DM/AE Merge & Summary": """/* SAS Sample: DM and AE Merge */
+data WORK.DM_CLEAN;
+    set SDTM.DM;
+    where AGE >= 18;
+run;
 
-        # Get macro definitions using parse_sas_source for authoritative extraction
+proc sort data=WORK.DM_CLEAN;
+    by SUBJECT_ID;
+run;
+
+proc sql;
+    create table WORK.DM_AE_SUMMARY as
+    select d.SUBJECT_ID, d.SEX, d.AGE, count(a.AEDECOD) as AE_COUNT
+    from WORK.DM_CLEAN as d
+    left join SDTM.AE as a on d.SUBJECT_ID = a.USUBJID
+    group by d.SUBJECT_ID, d.SEX, d.AGE;
+quit;""",
+            "Proc Summary & Sort": """/* SAS Sample: Proc Summary */
+proc sort data=WORK.SALES;
+    by REGION CATEGORY;
+run;
+
+proc summary data=WORK.SALES nway;
+    class REGION CATEGORY;
+    var REVENUE;
+    output out=WORK.REGIONAL_SUMMARY sum=TOTAL_REVENUE mean=AVG_REVENUE;
+run;""",
+            "Proc Transpose Custom": """/* SAS Sample: Proc Transpose */
+proc transpose data=WORK.QUARTERLY out=WORK.TRANSPOSED_SALES;
+    by REGION;
+    var Q1 Q2 Q3 Q4;
+run;""",
+            "Complex Macro Pipeline": """/* SAS Sample: Macro Function */
+%macro sort_domain(data=, by=);
+    proc sort data=&data;
+        by &by;
+    run;
+%mend sort_domain;
+
+%sort_domain(data=AE, by=USUBJID);
+
+proc sql;
+    create table WORK.DM_AE_SUMMARY as
+    select d.SUBJECT_ID, d.SEX, d.AGE, count(a.AEDECOD) as AE_COUNT
+    from WORK.DM_CLEAN as d
+    left join WORK.AE_CLEAN as a on d.SUBJECT_ID = a.USUBJID
+    where d.AGE >= 18
+    group by d.SUBJECT_ID, d.SEX, d.AGE
+    having calculated AE_COUNT >= 0;
+quit;"""
+        }
+
+        chosen_preset = st.selectbox(
+            "Load Sample Script (Optional)",
+            options=list(sample_presets.keys()),
+            key="preset_selector"
+        )
+        if chosen_preset and sample_presets[chosen_preset]:
+            st.session_state.sas_input = sample_presets[chosen_preset]
+
+        sas_script = st.text_area(
+            "SAS Code Input", height=240, label_visibility="collapsed",
+            placeholder="Paste your SAS code here or select a sample preset above...",
+            value=st.session_state.sas_input,
+            key="sas_input"
+        )
+
+        with st.expander("📁 Upload .sas Source File"):
+            uploaded_sas_file = st.file_uploader("Choose a .sas file", type=["sas", "txt"], key="sas_file_input")
+            if uploaded_sas_file:
+                try:
+                    sas_content = uploaded_sas_file.getvalue().decode("utf-8", errors="ignore")
+                    st.session_state.sas_input = sas_content
+                    st.success("✅ SAS source code loaded from file!")
+                except Exception as e:
+                    st.error(f"Failed to read file: {e}")
+
+        # Macro Library Upload (shown if macros present or in expander)
+        if has_macros(sas_script):
+            st.info("🔧 Macros detected in your code!")
+            with st.expander("📁 Upload Macro Library Files (optional)", expanded=True):
+                macro_files = st.file_uploader(
+                    "Upload additional .sas macro files",
+                    type=["sas", "txt"],
+                    accept_multiple_files=True,
+                    key="macro_lib_files"
+                )
+        else:
+            with st.expander("📁 Upload Macro Library Files (optional)", expanded=False):
+                macro_files = st.file_uploader(
+                    "Upload additional .sas macro files",
+                    type=["sas", "txt"],
+                    accept_multiple_files=True,
+                    key="macro_lib_files_opt"
+                )
+
+        # Expected SAS Outputs File Uploader (Only in Validate Mode)
+        uploaded_csvs = st.session_state.uploaded_csvs
+        if mode == "Convert + Execute + Validate":
+            st.divider()
+            st.markdown("### 📊 Expected SAS Output Datasets")
+            st.caption("Upload CSV or Excel files for validation. Single uploaded file auto-maps to the final step.")
+
+            uploaded = st.file_uploader(
+                "Upload CSV or Excel files",
+                type=["csv", "xlsx", "xls"],
+                accept_multiple_files=True,
+                key="uploader_" + str(st.session_state.get("upload_key", 0))
+            )
+
+            if uploaded:
+                st.session_state.uploaded_csvs = {}
+                uploaded_csvs = st.session_state.uploaded_csvs
+                cols = st.columns(min(len(uploaded), 3))
+
+                for i, f in enumerate(uploaded):
+                    name = os.path.splitext(f.name)[0].upper().strip()
+                    ext = os.path.splitext(f.name)[1].lower()
+
+                    try:
+                        if ext in (".xlsx", ".xls"):
+                            xls = pd.ExcelFile(f)
+                            sheet_names = xls.sheet_names
+
+                            if len(sheet_names) > 1:
+                                f.seek(0)
+                                chosen_sheet = st.selectbox(
+                                    f"📋 Sheet for **{f.name}**",
+                                    options=sheet_names,
+                                    key=f"sheet_{name}_{i}"
+                                )
+                                f.seek(0)
+                                df = safe_read_excel(f, sheet_name=chosen_sheet)
+                            else:
+                                f.seek(0)
+                                df = safe_read_excel(f, sheet_name=0)
+                        else:
+                            df = safe_read_csv(f)
+
+                        uploaded_csvs[name] = df
+                        st.session_state.uploaded_csvs[name] = df
+
+                        with cols[i % 3]:
+                            icon = "📗" if ext in (".xlsx", ".xls") else "📄"
+                            st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
+                            st.dataframe(df, use_container_width=True, height=120)
+
+                    except Exception as e:
+                        st.error(f"Failed to load {name}: {str(e)}")
+
+            with st.expander("Or paste CSV text manually"):
+                manual_csv = st.text_area(
+                    "Paste CSV here", height=100,
+                    key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
+                )
+                if manual_csv:
+                    try:
+                        df = pd.read_csv(io.StringIO(manual_csv))
+                        uploaded_csvs["MANUAL_INPUT"] = df
+                        st.session_state.uploaded_csvs["MANUAL_INPUT"] = df
+                        st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
+                        st.dataframe(df, height=120)
+                    except Exception as e:
+                        st.error(f"Parse error: {e}")
+
+        # Action Buttons
+        st.divider()
+        col_run, col_clear = st.columns([4, 1])
+        with col_run:
+            btn_label = "⚡ Convert SAS → R" if mode == "Convert Only" else "⚡ Convert & Validate R Output"
+            run_btn = st.button(btn_label, type="primary", use_container_width=True)
+        with col_clear:
+            st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
+
+    with col_right:
+        st.markdown("### ⚙️ Modernized R Code Output")
+        
+        # Display existing pipeline result code or empty placeholder
+        results = st.session_state.get("pipeline_results", [])
+        if results:
+            all_r_code = []
+            for r in results:
+                fix_res = st.session_state.get("fix_results", {}).get(r["name"])
+                c = fix_res["code"] if fix_res and fix_res.get("match") else r["r_code"]
+                if c:
+                    all_r_code.append(f"# --- {r['name']} ---\n{c}")
+            
+            full_r_display = "\n\n".join(all_r_code)
+            if "tidyverse" in r_dialect and not full_r_display.startswith("library(tidyverse)"):
+                full_r_display = "library(tidyverse)\n\n" + full_r_display
+
+            st.code(full_r_display, language="r")
+
+            c_copy, c_dl = st.columns(2)
+            with c_copy:
+                st.caption("📋 Select code block above to copy")
+            with c_dl:
+                st.download_button(
+                    "⬇️ Download .R Script",
+                    data=full_r_display,
+                    file_name="converted_pipeline.R",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+        else:
+            st.info("👈 Enter SAS code on the left and click Convert to view generated R code here.")
+
+    # ── PIPELINE EXECUTION LOGIC ──
+    if run_btn:
+        st.session_state.pipeline_run = False  # force fresh run
+        st.session_state.fix_results = {}
+        st.session_state.retry_counts = {}
+
+    if run_btn or st.session_state.get("pipeline_run"):
+        raw_sas_input = sas_script
+
         from macro_converter import parse_sas_source, convert_macros_to_r, classify_macro
         parsed_source = parse_sas_source(sas_script)
         _macro_defs = parsed_source["macro_definitions"]
         has_path_b = any(classify_macro(m, m_def, all_macro_defs=_macro_defs) == "PATH_B" for m, m_def in _macro_defs.items()) if _macro_defs else False
 
-        # Read uploaded macro files if present
         extra_files = []
         if macro_files:
             for mf in macro_files:
@@ -1108,7 +1304,6 @@ if page == "🔄 SAS Converter":
                 except Exception:
                     pass
 
-        # Expand macros in SAS code (preserve PATH_B calls when PATH_B macros are present)
         sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra_files, expand_path_b=not has_path_b)
 
         for w in mac_warnings:
@@ -1116,7 +1311,6 @@ if page == "🔄 SAS Converter":
         for h in sql_hints:
             st.info(f"💡 {h}")
 
-        # Convert macros to reusable R functions (Path B only)
         if _macro_defs:
             macro_result = convert_macros_to_r(
                 macro_definitions=_macro_defs,
@@ -1125,42 +1319,13 @@ if page == "🔄 SAS Converter":
                 groq_client=groq_client,
                 gemini_client=gemini_client
             )
-
             classifications = macro_result.get("classifications", {})
-            if classifications:
-                with st.expander("🏷️ SAS Macro Architecture & Path Classifications", expanded=True):
-                    for m_name, m_cls in classifications.items():
-                        if m_cls == "PATH_A":
-                            st.info(f"⚙️ **%{m_name}**: `PATH_A — Compile-Time Template` (expanded to DATA/PROC steps)")
-                        elif m_cls == "PATH_B":
-                            st.success(f"📦 **%{m_name}**: `PATH_B — Reusable R Utility` (converted to R function)")
-                        else:
-                            st.warning(f"⚠️ **%{m_name}**: `SAFE_REJECT — ManualReviewRequired` (unsupported construct)")
-
             has_path_b = any(cls == "PATH_B" for cls in classifications.values())
-            if has_path_b and macro_result.get("r_functions"):
-                with st.expander("🔧 Generated R Functions from Macros", expanded=True):
-                    st.code(macro_result["r_functions"], language="r")
-                    st.download_button(
-                        "⬇️ Download R Functions",
-                        data=macro_result["r_functions"],
-                        file_name="macro_functions.R",
-                        mime="text/plain",
-                        key="dl_macro_funcs"
-                    )
-            else:
-                st.info("ℹ️ No reusable Path-B macros detected. Compile-time macros were expanded into pipeline steps.")
-            for w in macro_result["warnings"]:
-                st.warning(w)
-            stats = macro_result["stats"]
-            path_b_count = stats.get("total", 0)
-            path_a_count = sum(1 for c in classifications.values() if c == "PATH_A")
-            st.caption(
-                f"📊 Macro conversion: {stats['rule_based']} PATH_B rule-based ({path_b_count} reusable utility functions) | "
-                f"{path_a_count} PATH_A compile-time templates expanded"
-            )
+        else:
+            macro_result = {"warnings": [], "stats": {"rule_based": 0, "total": 0}, "r_functions": ""}
+            classifications = {}
+            has_path_b = False
 
-        # ── ENTERPRISE SAS MODERNIZATION ENGINE PARSE & ANALYSIS ──
         import sas_step_converter
         import doc_generator
         from doc_renderers import md_renderer
@@ -1174,11 +1339,203 @@ if page == "🔄 SAS Converter":
             _conv_result = _modernization_converter.convert_program(unexp_sas, raw_sas_code=raw_sas_input)
         else:
             _conv_result = _modernization_converter.convert_program(raw_sas_input)
+
         _doc_gen = doc_generator.DocumentationGenerator()
         _mod_doc = _doc_gen.generate_document(_conv_result, program_name="SAS_Program_Modernization")
         _md_report = md_renderer.render_markdown(_mod_doc)
 
-        with st.expander("🧠 Modernization Engine Analysis & AST", expanded=True):
+        # Mode 1: Convert Only Execution
+        if mode == "Convert Only":
+            step_pattern = re.compile(
+                r"((?:data|proc)\s+.*?;.*?(?:run|quit);|%(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\s*(?:\([^)]*\))?\s*;)",
+                re.DOTALL | re.IGNORECASE
+            )
+            steps = step_pattern.findall(sas_script)
+            if not steps:
+                st.error("No valid SAS steps found.")
+                st.stop()
+
+            all_r = []
+            if has_path_b and _macro_defs and macro_result.get("r_functions"):
+                all_r.append("# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n")
+
+            known_tables = []
+            total_steps = len(steps)
+            prog = st.progress(0, text=f"Converting {total_steps} SAS step(s)...")
+            status = st.empty()
+            overall_start = time.time()
+            r_engine = RuleEngine(dialect=r_dialect)
+            conv_results = []
+
+            for i, step in enumerate(steps, 1):
+                step_lower = step.lower()
+                out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
+                sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
+
+                if step_lower.startswith("data"):
+                    stype = "DATA_STEP"
+                    sname = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"Step{i}"
+                elif step_lower.startswith("proc"):
+                    stype = "PROC_STEP"
+                    if out_name_match:
+                        sname = out_name_match.group(1).split('.')[-1].upper().strip()
+                    elif sort_inplace_match:
+                        sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
+                    else:
+                        sname = f"Step{i}"
+                else:
+                    stype = "MACRO_CALL"
+                    m_match = re.search(r"%(\w+)", step, re.I)
+                    sname = f"%{m_match.group(1).upper()}" if m_match else f"MACRO_CALL_{i}"
+
+                prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
+                status.markdown(f"⏳ **Converting Step {i}/{total_steps}** — `{sname}`")
+
+                step_start = time.time()
+                prog_step = ProgramStep(
+                    step_index=i, step_type=stype, name=sname,
+                    source_code=step, input_datasets=known_tables, output_datasets=[sname]
+                )
+                r_rule_code, conf, method = r_engine.translate_step(prog_step)
+
+                rule_valid = False
+                if r_rule_code and conf >= 0.85:
+                    if stype == "MACRO_CALL" or (is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code)):
+                        if stype == "MACRO_CALL": rule_valid = True
+                        else:
+                            from semantic_validator import validate_semantic_completeness
+                            is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
+                            if is_c: rule_valid = True
+
+                if rule_valid: rc = r_rule_code
+                else: rc = call_llm_api(step, [], known_tables, r_dialect, initial_candidate=r_rule_code)
+
+                elapsed = time.time() - step_start
+                all_r.append(f"# --- {sname} ---\n{rc}\n")
+                if sname not in known_tables: known_tables.append(sname)
+
+                conv_results.append({
+                    "name": sname, "step": step, "r_code": rc, "r_output": None,
+                    "error": None, "comparison": None, "elapsed_total": elapsed,
+                    "elapsed_llm": elapsed, "elapsed_exec": 0.0, "r_log": "Convert Only Mode"
+                })
+
+            prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
+            status.empty()
+            st.session_state.pipeline_results = conv_results
+            st.session_state.pipeline_run = True
+
+        # Mode 2: Convert + Execute + Validate Execution
+        else:
+            prog = st.progress(0, text="Initialising pipeline...")
+            status = st.empty()
+            overall_start = time.time()
+
+            if not st.session_state.get("pipeline_run"):
+                try:
+                    results = run_chain_pipeline(
+                        sas_script, uploaded_csvs, r_dialect,
+                        progress_bar=prog, status_text=status
+                    )
+                    st.session_state.pipeline_results = results
+                    st.session_state.pipeline_run = True
+                    st.session_state.retry_step = None
+                except Exception as e:
+                    st.error(f"Pipeline crashed: {str(e)}")
+                    st.stop()
+
+        # ── EXECUTION & VALIDATION PANEL (Mode B Active) ──
+        if mode == "Convert + Execute + Validate" and st.session_state.get("pipeline_results"):
+            st.divider()
+            st.markdown("### ⚡ Execution Results & Side-by-Side Validation")
+            
+            p_results = st.session_state.get("pipeline_results", [])
+            final_res = p_results[-1] if p_results else None
+            
+            if final_res and final_res.get("comparison"):
+                c_data = final_res["comparison"]
+                if c_data.get("match") is True:
+                    st.markdown("<span class='badge-pill badge-success'>✅ MATCH 100%: Rscript output matches SAS expected output</span>", unsafe_allow_html=True)
+                elif c_data.get("match") is False:
+                    st.markdown("<span class='badge-pill badge-warning'>❌ MISMATCH DETECTED: R output differs from expected SAS dataset</span>", unsafe_allow_html=True)
+            
+            for res in p_results:
+                if res.get("r_output") is not None:
+                    sas_out = uploaded_csvs.get(res['name'])
+                    if sas_out is None and res["is_final"]: sas_out = uploaded_csvs.get('MANUAL_INPUT')
+                    if sas_out is None and res["is_final"] and len(uploaded_csvs) == 1: sas_out = list(uploaded_csvs.values())[0]
+
+                    if sas_out is not None:
+                        col_s, col_r = st.columns(2)
+                        with col_s:
+                            st.markdown(f"**📋 Expected SAS Output (`{res['name']}`)**")
+                            st.caption(f"Shape: {sas_out.shape[0]} rows × {sas_out.shape[1]} cols")
+                            st.dataframe(sas_out, use_container_width=True, height=220)
+                        with col_r:
+                            st.markdown(f"**⚙️ Generated R Output (`{res['name']}`)**")
+                            st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
+                            st.dataframe(res['r_output'], use_container_width=True, height=220)
+
+                        cmp = res.get("comparison")
+                        if cmp and cmp.get("match") is False:
+                            st.error(f"Mismatch Details: {cmp.get('details')}")
+                            if cmp.get("mismatches"):
+                                st.table(pd.DataFrame(cmp["mismatches"]).head(10))
+                            
+                            # Preserve Fix & Retry button
+                            retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
+                            if retry_count < 3:
+                                if st.button(f"🔄 Fix & Retry {res['name']}", key=f"retry_val_{res['name']}"):
+                                    st.session_state.setdefault("retry_counts", {})[res['name']] = retry_count + 1
+                                    with st.spinner("Asking LLM to fix code based on mismatch deltas..."):
+                                        fixed_code = fix_r_code_on_mismatch(
+                                            res.get("r_code", ""), res["step"], cmp["mismatches"],
+                                            sas_out, res["r_output"], r_dialect
+                                        )
+                                        try:
+                                            new_out, new_log = run_r_subprocess(fixed_code, res["r_output"], st.session_state.get("work_library", {}))
+                                            new_cmp = compare_dfs(sas_out, new_out)
+                                            st.session_state.setdefault("fix_results", {})[res['name']] = {
+                                                "code": fixed_code, "match": new_cmp["match"], "details": new_cmp["details"]
+                                            }
+                                            if new_cmp["match"]:
+                                                for pr in st.session_state["pipeline_results"]:
+                                                    if pr["name"] == res["name"]:
+                                                        pr["comparison"] = new_cmp
+                                                        pr["r_code"] = fixed_code
+                                                        pr["r_output"] = new_out
+                                                        break
+                                            st.rerun()
+                                        except Exception as fe:
+                                            st.error(f"Fix failed: {fe}")
+
+        # ── EXPANDABLE STEP-BY-STEP DETAILS ACCORDION ──
+        st.divider()
+        with st.expander("▸ Step-by-Step Conversion Details (Expand to view intermediate steps)", expanded=False):
+            p_results = st.session_state.get("pipeline_results", [])
+            for res in p_results:
+                timing_str = f"  ⏱️ {format_elapsed(res['elapsed_total'])}" if res.get("elapsed_total") else ""
+                st.markdown(f"#### Step: `{res['name']}` {timing_str}")
+                
+                t1, t2, t3, t4, t5, t6 = st.tabs(["SAS Code", "Generated R", "R Output", "SAS vs R", "Validation", "R Log"])
+                with t1: st.code(res["step"], language="sas")
+                with t2: st.code(res.get("r_code") or "# No code generated", language="r")
+                with t3:
+                    if res.get("r_output") is not None: st.dataframe(res["r_output"], use_container_width=True)
+                    else: st.info("No R output data available for this step.")
+                with t4:
+                    if res.get("r_output") is not None and uploaded_csvs:
+                        st.info("Side-by-side data comparison available above.")
+                    else: st.info("Upload expected dataset to view SAS vs R table diffs.")
+                with t5:
+                    cmp = res.get("comparison")
+                    if cmp: st.write(cmp.get("details"))
+                    else: st.info("Validation data not attached.")
+                with t6:
+                    st.code(res.get("r_log") or "✅ No warnings or messages.", language="bash")
+
+        # ── EXPANDABLE ANALYSIS & MODERNIZATION DETAILS ──
+        with st.expander("🧠 Modernization Engine Analysis & AST", expanded=False):
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Complexity Score", f"{_conv_result.ast.complexity.score:.1f}/100", delta=_conv_result.ast.complexity.risk_level)
             m2.metric("Overall Confidence", f"{_conv_result.overall_confidence:.1f}%")
@@ -1189,10 +1546,8 @@ if page == "🔄 SAS Converter":
             with t_ast1:
                 st.markdown("**Dataset Lineage & Pipeline Flow**")
                 lineage_df = [l.to_dict() for l in _conv_result.ast.lineage]
-                if lineage_df:
-                    st.dataframe(lineage_df, use_container_width=True)
-                else:
-                    st.info("No intermediate datasets detected.")
+                if lineage_df: st.dataframe(lineage_df, use_container_width=True)
+                else: st.info("No intermediate datasets detected.")
 
             with t_ast2:
                 st.markdown("**Infrastructure & Setup**")
@@ -1209,7 +1564,6 @@ if page == "🔄 SAS Converter":
                 c_o1.metric("Original R Lines", opt_m["original_line_count"])
                 c_o2.metric("Optimized R Lines", opt_m["optimized_line_count"])
                 c_o3.metric("Line Reduction", f"{opt_m['line_reduction_pct']:.1f}%")
-                st.markdown("**Optimization Actions Taken:**")
                 for act in opt_m["actions_taken"]:
                     st.markdown(f"- ✓ {act}")
 
@@ -1218,380 +1572,11 @@ if page == "🔄 SAS Converter":
                 st.markdown(_md_report)
                 st.download_button(
                     "⬇️ Download Modernization Report (.md)",
-                    data=_md_report,
-                    file_name="SAS_Modernization_Report.md",
-                    mime="text/markdown",
-                    use_container_width=True,
-                    key="dl_mod_report"
+                    data=_md_report, file_name="SAS_Modernization_Report.md",
+                    mime="text/markdown", use_container_width=True, key="dl_mod_report_exp"
                 )
 
-        if mode == "Convert Only":
-          st.subheader("Generated & Optimized R Code")
-          step_pattern = re.compile(
-              r"((?:data|proc)\s+.*?;.*?(?:run|quit);|%(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\s*(?:\([^)]*\))?\s*;)",
-              re.DOTALL | re.IGNORECASE
-          )
-          steps = step_pattern.findall(sas_script)
-          if not steps: st.error("No valid SAS steps found."); st.stop()
-
-          all_r = []
-          if has_path_b and _macro_defs and macro_result.get("r_functions"):
-              all_r.append("# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n")
-
-          known_tables = []
-          total_steps = len(steps)
-
-          # ── PROGRESS BAR for Convert Only ──
-          prog = st.progress(0, text=f"Starting conversion of {total_steps} step(s)...")
-          status = st.empty()
-          overall_start = time.time()
-          r_engine = RuleEngine(dialect=r_dialect)
-
-          for i, step in enumerate(steps, 1):
-              step_lower = step.lower()
-              out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
-              sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
-
-              if step_lower.startswith("data"):
-                  stype = "DATA_STEP"
-                  sname = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"Step{i}"
-              elif step_lower.startswith("proc"):
-                  stype = "PROC_STEP"
-                  if out_name_match:
-                      sname = out_name_match.group(1).split('.')[-1].upper().strip()
-                  elif sort_inplace_match:
-                      sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
-                  else:
-                      sname = f"Step{i}"
-              else:
-                  stype = "MACRO_CALL"
-                  m_match = re.search(r"%(\w+)", step, re.I)
-                  sname = f"%{m_match.group(1).upper()}" if m_match else f"MACRO_CALL_{i}"
-
-              prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
-              status.markdown(f"⏳ **Step {i}/{total_steps}** — `{sname}`")
-
-              with st.expander(f"Step {i}: {sname}", expanded=True):
-                  t1, t2 = st.tabs(["SAS", "Generated R"])
-                  with t1: st.code(step.strip(), language="sas")
-                  with t2:
-                      with st.spinner(f"Converting {sname}..."):
-                          try:
-                              step_start = time.time()
-                              prog_step = ProgramStep(
-                                  step_index=i,
-                                  step_type=stype,
-                                  name=sname,
-                                  source_code=step,
-                                  input_datasets=known_tables,
-                                  output_datasets=[sname]
-                              )
-                              r_rule_code, conf, method = r_engine.translate_step(prog_step)
-
-                              rule_valid = False
-                              if r_rule_code and conf >= 0.85:
-                                  if stype == "MACRO_CALL" or (is_valid_r_code(r_rule_code) and validate_r_syntax(r_rule_code)):
-                                      if stype == "MACRO_CALL":
-                                          rule_valid = True
-                                      else:
-                                          from semantic_validator import validate_semantic_completeness
-                                          is_c, _, _, _ = validate_semantic_completeness(step, r_rule_code)
-                                          if is_c:
-                                              rule_valid = True
-
-                              if rule_valid:
-                                  rc = r_rule_code
-                              else:
-                                  rc = call_llm_api(step, [], known_tables, r_dialect, initial_candidate=r_rule_code)
-
-                              elapsed = time.time() - step_start
-                              st.code(rc, language="r")
-                              if stype == "MACRO_CALL" or f"{sname} <-" in rc or f"{sname} =" in rc or re.search(r'\b[a-zA-Z_]\w*\s*<-', rc):
-                                  all_r.append(f"# --- {sname} ---\n{rc}\n")
-                              else:
-                                  all_r.append(f"# --- {sname} ---\n{rc}\n")
-                              if sname not in known_tables:
-                                  known_tables.append(sname)
-                              st.success(f"✅ {sname} converted — ⏱️ {format_elapsed(elapsed)}")
-                          except Exception as e:
-                               cand_code = getattr(e, "candidate_code", None) or (r_rule_code if 'r_rule_code' in locals() else None)
-                               contract_ok = getattr(e, "contract_pass", False)
-                               syntax_ok = getattr(e, "syntax_pass", False)
-                               semantic_ok = getattr(e, "semantic_pass", False)
-                               missing_cols = getattr(e, "missing_cols", [])
-                               gemini_failed = getattr(e, "gemini_failed", False)
-                               groq_failed = getattr(e, "groq_failed", False)
-
-                               st.warning(f"⚠️ **{sname} — Conversion requires review**")
-                               if cand_code:
-                                   st.markdown("**Generated R Code (Candidate):**")
-                                   st.code(cand_code, language="r")
-                                   st.warning("⚠️ Candidate code was NOT accepted as final validated output. Manual review required.")
-
-                               with st.expander("📊 Validation Status Breakdown", expanded=True):
-                                   st.markdown(f"- **R Contract**: {'✅ PASS' if contract_ok else '❌ FAIL'}")
-                                   st.markdown(f"- **R Syntax**: {'✅ PASS' if syntax_ok else '❌ FAIL'}")
-                                   st.markdown(f"- **Semantic Completeness**: {'✅ PASS' if semantic_ok else '❌ FAIL'}")
-                                   st.markdown("- **Execution**: ❌ NOT RUN (Candidate code failed validation)")
-                                   if missing_cols:
-                                       st.markdown(f"**Missing columns**: `{', '.join(missing_cols)}`")
-                                   if gemini_failed or groq_failed:
-                                       st.markdown(f"**Gemini**: {'FAILED' if gemini_failed else 'PASSED'}  \n**Groq**: {'FAILED' if groq_failed else 'PASSED'}")
-  
-          prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
-          status.empty()
-          total_elapsed = time.time() - overall_start
-          st.info(f"🏁 Total conversion time: **{format_elapsed(total_elapsed)}**")
-  
-          if all_r:
-              st.divider()
-              full_script_text = "\n".join(all_r)
-              if "tidyverse" in r_dialect:
-                  full_script_text = "library(tidyverse)\n\n" + full_script_text
-              st.subheader("📥 Full R Script")
-              st.code(full_script_text, language="r")
-              st.download_button("⬇️ Download .R", data=full_script_text, file_name="converted.R", mime="text/plain", use_container_width=True)
-  
-        else:
-          st.subheader("Conversion + Execution + Validation")
-  
-          # ── PROGRESS BAR + STATUS for pipeline mode ──
-          prog = st.progress(0, text="Initialising pipeline...")
-          status = st.empty()
-          overall_start = time.time()
-  
-          if not st.session_state.get("pipeline_run"):
-              results = []
-              try:
-                  results = run_chain_pipeline(
-                      sas_script, uploaded_csvs, r_dialect,
-                      progress_bar=prog,
-                      status_text=status
-                  )
-                  st.session_state.pipeline_results = results
-                  st.session_state.pipeline_run = True
-                  st.session_state.retry_step = None
-              except Exception as e:
-                  st.error(f"Pipeline crashed: {str(e)}")
-                  import traceback
-                  st.code(traceback.format_exc())
-                  st.stop()
-  
-          results = st.session_state.get("pipeline_results", [])
-  
-          total_elapsed = time.time() - overall_start
-          st.info(f"🏁 Total pipeline time: **{format_elapsed(total_elapsed)}**")
-  
-          iresults = st.session_state.get("pipeline_results", results)
-          if not results: st.error("No steps processed."); st.stop()
-  
-          all_r = []
-          for res in results:
-              cmp = res["comparison"]
-              match = cmp["match"] if cmp else None
-  
-              badge = "⚪ INTERMEDIATE"
-              if res["error"]: badge = "⚠️ ERROR"
-              elif res["is_final"] and match is None: badge = "🏁 FINAL (Unvalidated)"
-              elif match is True: badge = "✅ MATCH"
-              elif match is False: badge = "❌ MISMATCH"
-  
-              # ── Timing summary for the header ──
-              timing_str = ""
-              if res["elapsed_total"] is not None:
-                  timing_str = f"  ⏱️ {format_elapsed(res['elapsed_total'])}"
-  
-              header = f"{badge} — {res['name']}{timing_str}"
-  
-              with st.expander(header, expanded=True):
-                  if res["error"]:
-                      st.error(f"Pipeline broke here: {res['error']}")
-  
-                  # ── Show detailed timing breakdown ──
-                  if res["elapsed_total"] is not None:
-                      t_cols = st.columns(3)
-                      with t_cols[0]:
-                          llm_t = format_elapsed(res["elapsed_llm"]) if res["elapsed_llm"] else "—"
-                          st.metric("🤖 LLM Time", llm_t)
-                      with t_cols[1]:
-                          exec_t = format_elapsed(res["elapsed_exec"]) if res["elapsed_exec"] else "—"
-                          st.metric("⚙️ R Exec Time", exec_t)
-                      with t_cols[2]:
-                          st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
-  
-                  t1, t2, t3, t4, t5, t6 = st.tabs(["SAS Code", "Generated R", "R Output", "SAS vs R", "Validation", "R Log"])
-                  
-                  with t1:
-                      st.code(res["step"], language="sas")
-  
-                  with t2:
-                      # show fixed code if available
-                      fix_result = st.session_state.get("fix_results", {}).get(res["name"])
-                      display_code = fix_result["code"] if fix_result and fix_result.get("match") else res["r_code"]
-                      if display_code:
-                          st.code(display_code, language="r")
-                          if fix_result and fix_result.get("match"):
-                              st.warning("⚠️ This is the Auto-fixed version")
-                          all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
-                      elif not res["error"]:
-                          if res["r_output"] is not None:
-                              df_r = res["r_output"]
-                              col_code = []
-                              for col in df_r.columns:
-                                  vals = df_r[col].tolist()
-                                  try:
-                                      floats = [float(v) for v in vals]
-                                      if all(v == int(v) for v in floats):
-                                          col_code.append(f'  {col} = c({", ".join(str(int(v)) for v in floats)})')
-                                      else:
-                                          col_code.append(f'  {col} = c({", ".join(str(v) for v in floats)})')
-                                  except (ValueError, TypeError):
-                                      col_code.append(f'  {col} = c({", ".join(repr(str(v)) for v in vals)})')
-                              datalines_r = "df = data.frame(\n" + ",\n".join(col_code) + "\n)\ndf"
-                              st.code(datalines_r, language="r")
-                              all_r.append(f"# --- {res['name']} ---\n{datalines_r}\n{res['name']} <- df\n")
-                              st.success(f"✅ Successfully parsed {df_r.shape[0]} rows × {df_r.shape[1]} cols")
-  
-                  with t3:
-                      if res["r_output"] is not None:
-                          st.markdown("**⚙️ R Generated Output**")
-                          st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
-                          st.dataframe(res["r_output"], use_container_width=True, height=300)
-                          csv_data = res["r_output"].to_csv(index=False)
-                          st.download_button(
-                              label=f"⬇️ Download {res['name']} as CSV",
-                              data=csv_data,
-                              file_name=f"{res['name']}_r_output.csv",
-                              mime="text/csv",
-                              key=f"download_{res['name']}_{id(res)}"
-                          )
-                      else:
-                          st.info("No data output for this step.")
-  
-                  with t4:
-                      if res["r_output"] is not None:
-                          # only show SAS vs R for final step
-                          sas_out = uploaded_csvs.get(res['name'])
-                          if sas_out is None and res["is_final"]:
-                              sas_out = uploaded_csvs.get('MANUAL_INPUT')
-                          if sas_out is None and res["is_final"] and len(uploaded_csvs) == 1:
-                              sas_out = list(uploaded_csvs.values())[0]
-                          
-                          if sas_out is not None:
-                              col_sas, col_r = st.columns(2)
-                              with col_sas:
-                                  st.markdown("**📋 SAS Expected Output**")
-                                  st.caption(f"Shape: {sas_out.shape[0]} rows × {sas_out.shape[1]} cols")
-                                  st.dataframe(sas_out, use_container_width=True, height=300)
-                              with col_r:
-                                  st.markdown("**⚙️ R Generated Output**")
-                                  st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
-                                  st.dataframe(res["r_output"], use_container_width=True, height=300)
-                          else:
-                              st.info("Upload expected CSV to see side by side comparison.")
-                      else:
-                          st.info("No R output available.")
-                  with t5:
-                      if cmp:
-                          if cmp["match"] is True:
-                              st.success(cmp["details"])
-                          elif cmp["match"] is False:
-                              st.error(cmp["details"])
-                              if cmp["mismatches"]:
-                                  st.table(pd.DataFrame(cmp["mismatches"]).head(10))
-                              retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
-                              fix_result = st.session_state.get("fix_results", {}).get(res['name'])
-                              if fix_result:
-                                  st.divider()
-                                  st.markdown("**🔧 Fix & Retry Result:**")
-                                  st.code(fix_result["code"], language="r")
-                                  if fix_result["match"]:
-                                      st.success("✅ Fixed! Output now matches SAS!")
-                                  else:
-                                      st.error(f"❌ Still mismatching: {fix_result['details']}")
-                              if retry_count < 3:
-                                  if st.button(f"🔄 Fix & Retry {res['name']}", key=f"retry_{res['name']}"):
-                                      st.session_state.setdefault("retry_counts", {})[res['name']] = retry_count + 1
-                                      with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
-                                          sas_df = uploaded_csvs.get(res['name'])
-                                          if sas_df is None:
-                                              sas_df = uploaded_csvs.get('MANUAL_INPUT')
-                                          if sas_df is None and len(uploaded_csvs) == 1:
-                                              sas_df = list(uploaded_csvs.values())[0]
-                                          r_code_to_fix = res.get('r_code') or ""
-                                          fixed_code = fix_r_code_on_mismatch(
-                                              r_code_to_fix,
-                                              res['step'],
-                                              cmp['mismatches'],
-                                              sas_df,
-                                              res['r_output'],
-                                              r_dialect
-                                          )
-                                          try:
-                                              new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], st.session_state.get("work_library", {}))
-                                              new_cmp = compare_dfs(sas_df, new_output)
-                                              st.session_state.setdefault("fix_results", {})[res['name']] = {
-                                                  "code": fixed_code,
-                                                  "match": new_cmp["match"],
-                                                  "details": new_cmp["details"]
-                                              }
-                                              if new_cmp["match"]:
-                                                  for pr in st.session_state["pipeline_results"]:
-                                                      if pr["name"] == res["name"]:
-                                                          pr["comparison"] = new_cmp
-                                                          pr["r_code"] = fixed_code
-                                                          pr["r_output"] = new_output
-                                                          break
-                                              st.rerun()
-                                          except Exception as e:
-                                              st.error(f"Fix attempt failed: {e}")
-                              else:
-                                  st.info("⚠️ Already retried 3 times.")
-                          else:
-                              st.warning(cmp["details"])
-                      else:
-                          st.info("Intermediate step: Passed to next step automatically.")
-                       
-                  with t6:
-                      log = res.get("r_log") or "✅ No warnings or messages."
-                      st.code(log, language="bash")
-  
-          st.divider()
-          st.subheader("📊 Summary")
-          valid_steps = [r for r in results if r["comparison"] and r["comparison"]["match"] is not None]
-          matches = [r for r in valid_steps if r["comparison"]["match"]]
-  
-          # ── Timing summary table ──
-          timing_rows = []
-          for r in results:
-              timing_rows.append({
-                  "Step": r["name"],
-                  "LLM Time": format_elapsed(r["elapsed_llm"]) if r["elapsed_llm"] else "—",
-                  "R Exec Time": format_elapsed(r["elapsed_exec"]) if r["elapsed_exec"] else "—",
-                  "Total Time": format_elapsed(r["elapsed_total"]) if r["elapsed_total"] else "—",
-                  "Status": "✅" if (r["comparison"] and r["comparison"]["match"] is True) else
-                            "❌" if (r["comparison"] and r["comparison"]["match"] is False) else
-                            "⚠️" if r["error"] else "⚪"
-              })
-  
-          c1, c2, c3, c4 = st.columns(4)
-          c1.metric("Total Steps", len(results))
-          c2.metric("Validated", len(valid_steps))
-          c3.metric("Matched ✅", len(matches))
-          c4.metric("Total Time", format_elapsed(total_elapsed))
-  
-          st.markdown("**⏱️ Step-by-Step Timing**")
-          st.dataframe(pd.DataFrame(timing_rows), use_container_width=True, hide_index=True)
-  
-          if all_r:
-              st.divider()
-              full_script_text = "\n".join(all_r)
-              if "tidyverse" in r_dialect:
-                  full_script_text = "library(tidyverse)\n\n" + full_script_text
-              st.subheader("📥 Full R Script")
-              st.code(full_script_text, language="r")
-              st.download_button("⬇️ Download .R Script", data=full_script_text, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
-          
+# --- OTHER TOOLS ROUTING ---
 if page == "📊 Graph Builder":
     render_graph_builder_tab()
 

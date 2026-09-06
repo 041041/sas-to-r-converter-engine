@@ -2808,9 +2808,12 @@ def _show_code_diff(old_code: str, new_code: str):
 # ══════════════════════════════════════════════════════════════════════════════
 def render_shell_tlf_tab():
     _ensure_r_packages()   # install gt, dplyr, tidyr, ggplot2 etc. if missing
-    st.title("📋 TLF from Mock Shell")
-    st.caption("Paste or upload a mock shell → AI parses spec → generates R code → executes → validates → auto-fixes")
-    st.divider()
+    st.markdown("""
+        <div class="main-header">
+            <h2>📋 TLF from Mock Shell</h2>
+            <p class="subtitle">Agentic pipeline (LangGraph): Parse Shell → Plan & Generate R → Execute → Validate → Auto-Fix / Retry</p>
+        </div>
+    """, unsafe_allow_html=True)
 
     # ── Session state init (all keys prefixed ms_) ────────────────────────
     _defaults = {
@@ -2847,9 +2850,9 @@ def render_shell_tlf_tab():
     # ════════════════════════════════════════════════════════════════════════
     # SECTION 1 — Mock Shell Input
     # ════════════════════════════════════════════════════════════════════════
-    st.subheader("📄 Mock Shell Input")
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">1</span> Mock Shell Specification</h3>', unsafe_allow_html=True)
 
-    shell_tab1, shell_tab2 = st.tabs(["📋 Paste Shell", "📁 Upload Shell File"])
+    shell_tab1, shell_tab2 = st.tabs(["📋 Paste Shell Text", "📁 Upload Shell File"])
 
     with shell_tab1:
         shell_pasted = st.text_area(
@@ -2922,18 +2925,18 @@ b. Note: xx""",
 
     # Show current shell
     if st.session_state["ms_shell_text"]:
-        with st.expander("✅ Current Shell (click to view)", expanded=False):
+        with st.expander("✅ Current Shell Content (click to view)", expanded=False):
             st.text(st.session_state["ms_shell_text"][:800])
 
-    st.divider()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════════════════════════
     # SECTION 2 — ADaM Dataset (optional)
     # ════════════════════════════════════════════════════════════════════════
-    st.subheader("📊 ADaM Dataset (Optional)")
-    st.caption("If not provided, AI will generate realistic dummy data matching the shell spec.")
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">2</span> ADaM Clinical Dataset (Optional)</h3>', unsafe_allow_html=True)
+    st.caption("If omitted, AI engine generates synthetic ADaM data matching the shell structure.")
 
-    adam_tab1, adam_tab2 = st.tabs(["📁 Upload ADaM CSV", "📋 Paste CSV"])
+    adam_tab1, adam_tab2 = st.tabs(["📁 Upload ADaM CSV/Excel", "📋 Paste CSV Text"])
 
     with adam_tab1:
         uploaded_adam = st.file_uploader(
@@ -2968,11 +2971,12 @@ b. Note: xx""",
             except Exception as e:
                 st.error(f"CSV parse error: {e}")
 
-    st.divider()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════════════════════════
-    # SECTION 3 — AI Instructions box (same pattern as graph_builder)
+    # SECTION 3 & 4 — AI Instructions & Actions
     # ════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">3</span> Actions & Agent Pipeline Options</h3>', unsafe_allow_html=True)
     ai_instructions = st.text_area(
         "✨ Additional AI Instructions (optional)",
         placeholder="e.g. Use gt package with blue header, round to 1 decimal, add p-value column, apply ICH E3 footnote format...",
@@ -2980,19 +2984,16 @@ b. Note: xx""",
         key="ms_ai_instructions"
     )
 
-    # ════════════════════════════════════════════════════════════════════════
-    # SECTION 4 — Generate / Clear buttons
-    # ════════════════════════════════════════════════════════════════════════
     btn_col1, btn_col2 = st.columns([4, 1])
     with btn_col1:
         generate_btn = st.button(
-            "🤖 Generate TLF from Shell",
+            "🤖 Run TLF Agentic Pipeline",
             type="primary",
             use_container_width=True,
             key="ms_generate_btn"
         )
     with btn_col2:
-        st.button("🗑️ Clear", on_click=_clear, use_container_width=True, key="ms_clear_btn")
+        st.button("🗑️ Clear All", on_click=_clear, use_container_width=True, key="ms_clear_btn")
 
     # ── Validate inputs before running ───────────────────────────────────
     if generate_btn:
@@ -3096,6 +3097,7 @@ b. Note: xx""",
             st.stop()
 
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Re-run from edited code ───────────────────────────────────────────
     if st.session_state.get("ms_run_now"):
@@ -3127,8 +3129,7 @@ b. Note: xx""",
     if not st.session_state.get("ms_pipeline_done"):
         return
 
-    st.divider()
-    st.subheader("📤 Output")
+    st.markdown('<div class="card-box"><h3 style="margin-top:0;"><span class="step-num">4</span> Pipeline Results & R Output</h3>', unsafe_allow_html=True)
 
     # ── Agent log expander ────────────────────────────────────────────────
     agent_log = st.session_state.get("ms_agent_log", [])
@@ -3151,7 +3152,7 @@ b. Note: xx""",
     # ── Parsed spec summary ───────────────────────────────────────────────
     spec = st.session_state.get("ms_parsed_spec") or {}
     if spec:
-        with st.expander("🔍 Parsed Shell Spec", expanded=False):
+        with st.expander("🔍 Parsed Shell Specification", expanded=False):
             meta_col1, meta_col2, meta_col3 = st.columns(3)
             with meta_col1:
                 st.markdown(f"**Type:** {spec.get('output_type','Table')}")
@@ -3217,7 +3218,6 @@ b. Note: xx""",
                         else:
                             st.session_state["ms_preview_html"] = _prev_state["execution_output"]
                             # Left tab = original output captured BEFORE enhancement ran
-                            # (ms_output_before_enhance set when Apply Enhancement was clicked)
                             st.session_state["ms_preview_html_before"] = (
                                 st.session_state.get("ms_output_before_enhance") or
                                 st.session_state.get("ms_output", "")
@@ -3260,8 +3260,8 @@ b. Note: xx""",
     # ── Tabs: TLF Output | R Code ─────────────────────────────────────────
     output_type = st.session_state.get("ms_output_type", "Table")
     out_tab1, out_tab2 = st.tabs([
-        "📊 TLF Output",
-        "💻 R Code"
+        "📊 TLF Output Preview",
+        "💻 R Code Editor"
     ])
 
     with out_tab1:
@@ -3269,7 +3269,7 @@ b. Note: xx""",
         error  = st.session_state.get("ms_error")
 
         if error:
-            st.error(f"R Error:\n{error}")
+            st.error(f"R Execution Error:\n{error}")
 
         if output:
             if output_type == "Figure" and isinstance(output, (bytes, bytearray)):
@@ -3282,7 +3282,10 @@ b. Note: xx""",
                 )
             elif isinstance(output, str) and output.strip().startswith("<"):
                 # HTML table from gt
-                st.components.v1.html(output, height=600, scrolling=True)
+                st.components.v1.html(
+                    f"<div style='background:white; padding:15px; border-radius:6px; border:1px solid #e2e8f0;'>{output}</div>",
+                    height=600, scrolling=True
+                )
                 st.download_button(
                     "⬇️ Download HTML Table",
                     data=output,
@@ -3326,11 +3329,10 @@ b. Note: xx""",
             )
 
     # ── Custom enhancement box — mirrors graph_builder.py pattern exactly ──
-    # Only shown after a table has been generated (same guard as graph_builder)
     if st.session_state.get("ms_pipeline_done") and st.session_state.get("ms_r_code"):
         st.divider()
         enhance_text = st.text_area(
-            "✨ Custom Enhancement (optional)",
+            "✨ Custom Enhancement Prompt (optional)",
             placeholder="e.g. Add p-value column, change header color to navy, bold the Total column, add risk difference row...",
             height=80,
             key="ms_enhance_text",
@@ -3358,7 +3360,6 @@ b. Note: xx""",
             if not enhance_text.strip():
                 st.warning("Enter enhancement instructions first.")
             else:
-                # Build on currently accepted code (cumulative enhancements preserved)
                 existing_code = st.session_state.get("ms_r_code", "")
                 if not existing_code.strip():
                     st.error("No R code to enhance yet — generate a table first.")
@@ -3392,10 +3393,6 @@ b. Note: xx""",
                         raw = re.sub(r'```', '', raw).strip()
                         raw = _sanitise_r_code(raw)
 
-                        # ── Snapshot BEFORE running — must happen here, inline, ──
-                        # before any execution overwrites ms_output.
-                        # Do NOT use ms_run_now (it fires before this code runs
-                        # on the next render, wiping ms_output first).
                         before_output = st.session_state.get("ms_output", "")
 
                         # Execute enhanced code inline right now
@@ -3413,12 +3410,10 @@ b. Note: xx""",
                         with st.spinner("⚙️ Running enhanced R..."):
                             _enh_state = node_execute(_enh_state)
 
-                        # Store snapshot (original) and new output separately
                         st.session_state["ms_output_before_enhance"] = before_output
                         st.session_state["ms_r_code_original"]       = existing_code
                         st.session_state["ms_r_code_pending"]        = raw
                         st.session_state["ms_r_code"]                = raw
-                        # Update live output with enhanced result
                         if not _enh_state["execution_error"]:
                             st.session_state["ms_output"] = (
                                 _enh_state["final_output"] or _enh_state["execution_output"]
@@ -3427,3 +3422,6 @@ b. Note: xx""",
                         else:
                             st.session_state["ms_error"] = _enh_state["execution_error"]
                         st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
