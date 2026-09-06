@@ -1413,10 +1413,10 @@ proc sql;
 quit;"""
         }
 
-        # Compact Header Row: SAS Source Code Title + Sample Selector
+        # Compact Header Row: SAS Input Title + Sample Selector
         hdr_left, hdr_right = st.columns([1.5, 1])
         with hdr_left:
-            st.markdown("### 📋 SAS Source Code")
+            st.markdown("### 📋 SAS Input")
         with hdr_right:
             chosen_preset = st.selectbox(
                 "Sample Script",
@@ -1435,135 +1435,8 @@ quit;"""
             key="sas_input"
         )
 
-        # ── UNIFIED SAS PROJECT FILE UPLOADER (ONE PHYSICAL UPLOADER) ──
-        supporting_files = []
-        with st.expander("📁 SAS Project Files", expanded=True):
-            st.caption("Upload your main SAS program and optional supporting SAS files.")
-            uploaded_project_files = st.file_uploader(
-                "Upload SAS files (.sas, .txt)",
-                type=["sas", "txt"],
-                accept_multiple_files=True,
-                key="sas_project_files_input_" + str(st.session_state.get("upload_key", 0))
-            )
-
-            if uploaded_project_files:
-                file_names = [f.name for f in uploaded_project_files]
-                files_by_name = {f.name: f for f in uploaded_project_files}
-
-                if len(uploaded_project_files) == 1:
-                    main_file = uploaded_project_files[0]
-                    st.markdown(f"**Main SAS Program:** `{main_file.name}`")
-                    if st.session_state.get("loaded_project_file") != main_file.name:
-                        try:
-                            content = main_file.getvalue().decode("utf-8", errors="ignore")
-                            st.session_state.sas_input = content
-                            st.session_state.loaded_project_file = main_file.name
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to read file: {e}")
-                    supporting_files = []
-                else:
-                    st.markdown("**Uploaded Files:**")
-                    for fn in file_names:
-                        st.markdown(f"• `{fn}`")
-
-                    selected_main_name = st.selectbox(
-                        "Main SAS Program",
-                        options=file_names,
-                        key="selected_main_sas_file_" + str(st.session_state.get("upload_key", 0))
-                    )
-
-                    if selected_main_name and st.session_state.get("loaded_project_file") != selected_main_name:
-                        try:
-                            main_file = files_by_name[selected_main_name]
-                            content = main_file.getvalue().decode("utf-8", errors="ignore")
-                            st.session_state.sas_input = content
-                            st.session_state.loaded_project_file = selected_main_name
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to read {selected_main_name}: {e}")
-
-                    supporting_files = [f for f in uploaded_project_files if f.name != selected_main_name]
-                    if supporting_files:
-                        st.markdown("**Supporting SAS Files:**")
-                        for sf in supporting_files:
-                            st.markdown(f"• `{sf.name}`")
-
-        # Store supporting_files in session_state for pipeline retrieval
-        st.session_state["active_supporting_files"] = supporting_files
-
-        # Expected SAS Outputs File Uploader (Only in Validate Mode)
-        uploaded_csvs = st.session_state.uploaded_csvs
-        if mode == "Convert + Execute + Validate":
-            st.divider()
-            st.markdown("### 📊 Expected SAS Output Datasets")
-            st.caption("Upload CSV or Excel files for validation. Single uploaded file auto-maps to the final step.")
-
-            uploaded = st.file_uploader(
-                "Upload CSV or Excel files",
-                type=["csv", "xlsx", "xls"],
-                accept_multiple_files=True,
-                key="uploader_" + str(st.session_state.get("upload_key", 0))
-            )
-
-            if uploaded:
-                st.session_state.uploaded_csvs = {}
-                uploaded_csvs = st.session_state.uploaded_csvs
-                cols = st.columns(min(len(uploaded), 3))
-
-                for i, f in enumerate(uploaded):
-                    name = os.path.splitext(f.name)[0].upper().strip()
-                    ext = os.path.splitext(f.name)[1].lower()
-
-                    try:
-                        if ext in (".xlsx", ".xls"):
-                            xls = pd.ExcelFile(f)
-                            sheet_names = xls.sheet_names
-
-                            if len(sheet_names) > 1:
-                                f.seek(0)
-                                chosen_sheet = st.selectbox(
-                                    f"📋 Sheet for **{f.name}**",
-                                    options=sheet_names,
-                                    key=f"sheet_{name}_{i}"
-                                )
-                                f.seek(0)
-                                df = safe_read_excel(f, sheet_name=chosen_sheet)
-                            else:
-                                f.seek(0)
-                                df = safe_read_excel(f, sheet_name=0)
-                        else:
-                            df = safe_read_csv(f)
-
-                        uploaded_csvs[name] = df
-                        st.session_state.uploaded_csvs[name] = df
-
-                        with cols[i % 3]:
-                            icon = "📗" if ext in (".xlsx", ".xls") else "📄"
-                            st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
-                            st.dataframe(df, use_container_width=True, height=120)
-
-                    except Exception as e:
-                        st.error(f"Failed to load {name}: {str(e)}")
-
-            with st.expander("Or paste CSV text manually"):
-                manual_csv = st.text_area(
-                    "Paste CSV here", height=100,
-                    key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
-                )
-                if manual_csv:
-                    try:
-                        df = pd.read_csv(io.StringIO(manual_csv))
-                        uploaded_csvs["MANUAL_INPUT"] = df
-                        st.session_state.uploaded_csvs["MANUAL_INPUT"] = df
-                        st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
-                        st.dataframe(df, height=120)
-                    except Exception as e:
-                        st.error(f"Parse error: {e}")
-
-        # Action Buttons
-        st.divider()
-        col_run, col_clear = st.columns([4, 1])
+        # Panel-Local Action Controls (Left Panel)
+        col_run, col_clear = st.columns([3, 1])
         with col_run:
             btn_label = "⚡ Convert SAS → R" if mode == "Convert Only" else "⚡ Convert & Validate R Output"
             run_btn = st.button(btn_label, type="primary", use_container_width=True)
@@ -1571,12 +1444,20 @@ quit;"""
             st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
 
     with col_right:
-        st.markdown("### ⚙️ Modernized R Code Output")
-        
-        # Display existing pipeline result code or empty placeholder
         results = st.session_state.get("pipeline_results", [])
+        pipeline_run_flag = st.session_state.get("pipeline_run", False)
+
+        # Compact Header Row: R Output Title + Inline Conversion Status
+        hdr_r_left, hdr_r_right = st.columns([1.5, 1])
+        with hdr_r_left:
+            st.markdown("### ⚙️ R Output")
+        with hdr_r_right:
+            if results:
+                st.markdown('<div style="text-align: right; color: var(--success); font-weight: 600; font-size: 0.88rem; padding-top: 4px;">✓ Converted</div>', unsafe_allow_html=True)
+            elif pipeline_run_flag:
+                st.markdown('<div style="text-align: right; color: var(--warning); font-weight: 600; font-size: 0.88rem; padding-top: 4px;">Converting...</div>', unsafe_allow_html=True)
+
         if results:
-            st.success(f"✅ All {len(results)} step(s) converted!")
             all_r_code = []
             for r in results:
                 fix_res = st.session_state.get("fix_results", {}).get(r["name"])
@@ -1590,8 +1471,7 @@ quit;"""
 
             st.code(full_r_display, language="r")
 
-            st.divider()
-            c_copy, c_dl = st.columns([1.5, 1])
+            c_copy, c_dl = st.columns([1.2, 1])
             with c_copy:
                 st.caption("📋 Select code block above to copy")
             with c_dl:
@@ -1603,12 +1483,10 @@ quit;"""
                     use_container_width=True
                 )
         else:
-            st.info("👈 Enter SAS code on the left and click Convert to view generated R code here.")
             placeholder_code = "# Modernized R code output will appear here after conversion.\n# Select a sample script on the left or paste SAS code, then click '⚡ Convert SAS → R'."
             st.code(placeholder_code, language="r")
 
-            st.divider()
-            c_copy, c_dl = st.columns([1.5, 1])
+            c_copy, c_dl = st.columns([1.2, 1])
             with c_copy:
                 st.caption("📋 Select code block above to copy")
             with c_dl:
@@ -1620,6 +1498,135 @@ quit;"""
                     use_container_width=True,
                     disabled=True
                 )
+
+    # ── SECONDARY / OPTIONAL SECTION BELOW PRIMARY CONVERTER WORKSPACE ──
+    st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True)
+    st.divider()
+
+    supporting_files = []
+    with st.expander("📁 SAS Project Files", expanded=False):
+        st.caption("Upload your main SAS program and optional supporting SAS files.")
+        uploaded_project_files = st.file_uploader(
+            "Upload SAS files (.sas, .txt)",
+            type=["sas", "txt"],
+            accept_multiple_files=True,
+            key="sas_project_files_input_" + str(st.session_state.get("upload_key", 0))
+        )
+
+        if uploaded_project_files:
+            file_names = [f.name for f in uploaded_project_files]
+            files_by_name = {f.name: f for f in uploaded_project_files}
+
+            if len(uploaded_project_files) == 1:
+                main_file = uploaded_project_files[0]
+                st.markdown(f"**Main SAS Program:** `{main_file.name}`")
+                if st.session_state.get("loaded_project_file") != main_file.name:
+                    try:
+                        content = main_file.getvalue().decode("utf-8", errors="ignore")
+                        st.session_state.sas_input = content
+                        st.session_state.loaded_project_file = main_file.name
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to read file: {e}")
+                supporting_files = []
+            else:
+                st.markdown("**Uploaded Files:**")
+                for fn in file_names:
+                    st.markdown(f"• `{fn}`")
+
+                selected_main_name = st.selectbox(
+                    "Main SAS Program",
+                    options=file_names,
+                    key="selected_main_sas_file_" + str(st.session_state.get("upload_key", 0))
+                )
+
+                if selected_main_name and st.session_state.get("loaded_project_file") != selected_main_name:
+                    try:
+                        main_file = files_by_name[selected_main_name]
+                        content = main_file.getvalue().decode("utf-8", errors="ignore")
+                        st.session_state.sas_input = content
+                        st.session_state.loaded_project_file = selected_main_name
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to read {selected_main_name}: {e}")
+
+                supporting_files = [f for f in uploaded_project_files if f.name != selected_main_name]
+                if supporting_files:
+                    st.markdown("**Supporting SAS Files:**")
+                    for sf in supporting_files:
+                        st.markdown(f"• `{sf.name}`")
+
+    # Store supporting_files in session_state for pipeline retrieval
+    st.session_state["active_supporting_files"] = supporting_files
+
+    # Expected SAS Outputs File Uploader (Only in Validate Mode)
+    uploaded_csvs = st.session_state.uploaded_csvs
+    if mode == "Convert + Execute + Validate":
+        st.divider()
+        st.markdown("### 📊 Expected SAS Output Datasets")
+        st.caption("Upload CSV or Excel files for validation. Single uploaded file auto-maps to the final step.")
+
+        uploaded = st.file_uploader(
+            "Upload CSV or Excel files",
+            type=["csv", "xlsx", "xls"],
+            accept_multiple_files=True,
+            key="uploader_" + str(st.session_state.get("upload_key", 0))
+        )
+
+        if uploaded:
+            st.session_state.uploaded_csvs = {}
+            uploaded_csvs = st.session_state.uploaded_csvs
+            cols = st.columns(min(len(uploaded), 3))
+
+            for i, f in enumerate(uploaded):
+                name = os.path.splitext(f.name)[0].upper().strip()
+                ext = os.path.splitext(f.name)[1].lower()
+
+                try:
+                    if ext in (".xlsx", ".xls"):
+                        xls = pd.ExcelFile(f)
+                        sheet_names = xls.sheet_names
+
+                        if len(sheet_names) > 1:
+                            f.seek(0)
+                            chosen_sheet = st.selectbox(
+                                f"📋 Sheet for **{f.name}**",
+                                options=sheet_names,
+                                key=f"sheet_{name}_{i}"
+                            )
+                            f.seek(0)
+                            df = safe_read_excel(f, sheet_name=chosen_sheet)
+                        else:
+                            f.seek(0)
+                            df = safe_read_excel(f, sheet_name=0)
+                    else:
+                        df = safe_read_csv(f)
+
+                    uploaded_csvs[name] = df
+                    st.session_state.uploaded_csvs[name] = df
+
+                    with cols[i % 3]:
+                        icon = "📗" if ext in (".xlsx", ".xls") else "📄"
+                        st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
+                        st.dataframe(df, use_container_width=True, height=120)
+
+                except Exception as e:
+                    st.error(f"Failed to load {name}: {str(e)}")
+
+        with st.expander("Or paste CSV text manually"):
+            manual_csv = st.text_area(
+                "Paste CSV here", height=100,
+                key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
+            )
+            if manual_csv:
+                try:
+                    df = pd.read_csv(io.StringIO(manual_csv))
+                    uploaded_csvs["MANUAL_INPUT"] = df
+                    st.session_state.uploaded_csvs["MANUAL_INPUT"] = df
+                    st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
+                    st.dataframe(df, height=120)
+                except Exception as e:
+                    st.error(f"Parse error: {e}")
 
     # ── PIPELINE EXECUTION LOGIC ──
     if run_btn:
