@@ -335,16 +335,21 @@ st.markdown("""
         color: var(--text-main) !important;
     }
 
-    /* SAS Code Text Area & Generated R Code Block Styling */
+    /* SAS Code Text Area & Generated R Code Block Fixed 360px Height */
     div[data-testid="stTextArea"] textarea {
         background-color: var(--bg-surface) !important;
         color: var(--text-main) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: var(--radius) !important;
         font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+        height: 360px !important;
+        min-height: 360px !important;
+        max-height: 360px !important;
+        resize: none !important;
     }
 
     div[data-testid="stCodeBlock"],
+    div[data-testid="stCodeBlock"] > div,
     div[data-testid="stCodeBlock"] pre {
         background-color: var(--bg-surface) !important;
         color: var(--text-main) !important;
@@ -354,8 +359,12 @@ st.markdown("""
     }
 
     div[data-testid="stCodeBlock"] pre {
-        min-height: 240px !important;
+        height: 360px !important;
+        min-height: 360px !important;
+        max-height: 360px !important;
+        overflow-y: auto !important;
         margin: 0 !important;
+        padding: 12px 14px !important;
     }
 
     div[data-testid="stTextArea"] textarea::placeholder {
@@ -1429,7 +1438,7 @@ quit;"""
             st.session_state.sas_input = sample_presets[chosen_preset]
 
         sas_script = st.text_area(
-            "SAS Code Input", height=240, label_visibility="collapsed",
+            "SAS Code Input", height=360, label_visibility="collapsed",
             placeholder="Paste your SAS code here or select a sample preset above...",
             value=st.session_state.sas_input,
             key="sas_input"
