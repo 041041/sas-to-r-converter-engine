@@ -1344,11 +1344,9 @@ if page == "🔄 SAS Converter":
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.markdown("### 📋 SAS Source Code")
-        
         # Sample Preset Snippets
         sample_presets = {
-            "Select Sample SAS Script...": "",
+            "Select sample SAS script": "",
             "DM/AE Merge & Summary": """/* SAS Sample: DM and AE Merge */
 data WORK.DM_CLEAN;
     set SDTM.DM;
@@ -1401,11 +1399,18 @@ proc sql;
 quit;"""
         }
 
-        chosen_preset = st.selectbox(
-            "Load Sample Script (Optional)",
-            options=list(sample_presets.keys()),
-            key="preset_selector"
-        )
+        # Compact Header Row: SAS Source Code Title + Sample Selector
+        hdr_left, hdr_right = st.columns([1.5, 1])
+        with hdr_left:
+            st.markdown("### 📋 SAS Source Code")
+        with hdr_right:
+            chosen_preset = st.selectbox(
+                "Sample Script",
+                options=list(sample_presets.keys()),
+                key="preset_selector",
+                label_visibility="collapsed"
+            )
+
         if chosen_preset and sample_presets[chosen_preset]:
             st.session_state.sas_input = sample_presets[chosen_preset]
 
