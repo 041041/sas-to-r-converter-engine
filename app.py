@@ -14,7 +14,7 @@ from sas_ast import ProgramStep
 
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
 for key, default in {
     "sas_input": "",
@@ -63,6 +63,10 @@ st.markdown("""
         --text-muted: #64748B;
         --primary-btn: #2563EB;
         --primary-btn-hover: #1D4ED8;
+        --secondary-btn-bg: #FFFFFF;
+        --secondary-btn-hover: #F1F5F9;
+        --secondary-btn-border: #E2E8F0;
+        --secondary-btn-text: #0F172A;
         --sidebar-bg: #0F172A;
         --success: #059669;
         --success-bg: #ECFDF5;
@@ -79,11 +83,16 @@ st.markdown("""
             --bg-surface: #111827;
             --bg-subtle: #1E293B;
             --border-color: #334155;
+            --border-dark: #475569;
             --text-main: #F8FAFC;
             --text-subtitle: #CBD5E1;
             --text-muted: #94A3B8;
             --primary-btn: #60A5FA;
             --primary-btn-hover: #93C5FD;
+            --secondary-btn-bg: #1E293B;
+            --secondary-btn-hover: #334155;
+            --secondary-btn-border: #334155;
+            --secondary-btn-text: #F8FAFC;
             --sidebar-bg: #020617;
         }
     }
@@ -174,7 +183,7 @@ st.markdown("""
         font-family: monospace;
     }
 
-    /* Enterprise Primary Action Button Styling */
+    /* Enterprise Primary Action Button Styling (e.g. Convert SAS -> R) */
     div.stButton > button[kind="primary"],
     button[kind="primary"],
     .stButton > button[data-testid="stBaseButton-primary"] {
@@ -191,6 +200,94 @@ st.markdown("""
         background-color: var(--primary-btn-hover) !important;
         border-color: var(--primary-btn) !important;
         color: #FFFFFF !important;
+    }
+
+    /* Enterprise Neutral Secondary Button Styling (e.g. Clear button) */
+    div.stButton > button:not([kind="primary"]),
+    button[kind="secondary"],
+    .stButton > button[data-testid="stBaseButton-secondary"] {
+        background-color: var(--secondary-btn-bg) !important;
+        color: var(--secondary-btn-text) !important;
+        border: 1px solid var(--secondary-btn-border) !important;
+        font-weight: 600 !important;
+        border-radius: 6px !important;
+    }
+
+    div.stButton > button:not([kind="primary"]):hover,
+    button[kind="secondary"]:hover,
+    .stButton > button[data-testid="stBaseButton-secondary"]:hover {
+        background-color: var(--secondary-btn-hover) !important;
+        color: var(--secondary-btn-text) !important;
+        border-color: var(--secondary-btn-border) !important;
+    }
+
+    /* Selectbox Widget & Dropdown Popover Theme Styling */
+    div[data-testid="stSelectbox"] label,
+    div[data-testid="stSelectbox"] label p {
+        color: var(--text-main) !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        background-color: var(--bg-surface) !important;
+        color: var(--text-main) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+    }
+
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] div,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] span,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] input {
+        color: var(--text-main) !important;
+        background-color: transparent !important;
+    }
+
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] input::placeholder {
+        color: var(--text-muted) !important;
+    }
+
+    div[data-testid="stSelectbox"] svg {
+        fill: var(--text-muted) !important;
+        color: var(--text-muted) !important;
+    }
+
+    div[data-baseweb="popover"],
+    div[data-baseweb="popover"] > div,
+    div[data-baseweb="menu"],
+    ul[data-baseweb="menu"] {
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+        color: var(--text-main) !important;
+    }
+
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="popover"] li[data-baseweb="option"],
+    ul[data-baseweb="menu"] li {
+        background-color: var(--bg-surface) !important;
+        color: var(--text-main) !important;
+    }
+
+    div[data-baseweb="popover"] li:hover,
+    div[data-baseweb="popover"] li[aria-selected="true"],
+    div[data-baseweb="popover"] li[data-baseweb="option"]:hover,
+    ul[data-baseweb="menu"] li:hover,
+    ul[data-baseweb="menu"] li[aria-selected="true"] {
+        background-color: var(--bg-subtle) !important;
+        color: var(--text-main) !important;
+    }
+
+    /* SAS Code Text Area Styling */
+    div[data-testid="stTextArea"] textarea {
+        background-color: var(--bg-surface) !important;
+        color: var(--text-main) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+    }
+
+    div[data-testid="stTextArea"] textarea::placeholder {
+        color: var(--text-muted) !important;
     }
 
     /* Main Content Contrast Scoping */
@@ -217,12 +314,6 @@ st.markdown("""
     section[data-testid="stMain"] div[data-testid="stRadio"] label,
     section[data-testid="stMain"] div[data-testid="stRadio"] label p,
     section[data-testid="stMain"] div[data-testid="stRadio"] label span,
-    section[data-testid="stMain"] div[data-testid="stRadio"] p,
-    section[data-testid="stMain"] div[data-testid="stRadio"] span,
-    section[data-testid="stMain"] div[data-testid="stSelectbox"] label,
-    section[data-testid="stMain"] div[data-testid="stSelectbox"] label p,
-    section[data-testid="stMain"] div[data-testid="stTextArea"] label,
-    section[data-testid="stMain"] div[data-testid="stTextArea"] label p,
     section[data-testid="stMain"] div[data-testid="stFileUploader"] label,
     section[data-testid="stMain"] div[data-testid="stFileUploader"] label p,
     section[data-testid="stMain"] div[data-testid="stExpander"] summary span,
@@ -238,6 +329,10 @@ st.markdown("""
     section[data-testid="stSidebar"] {
         background-color: var(--sidebar-bg) !important;
         padding-top: 0.8rem !important;
+    }
+
+    section[data-testid="stSidebar"][aria-expanded="true"] {
+        min-width: 260px !important;
     }
 
     section[data-testid="stSidebar"] hr {
@@ -1031,12 +1126,23 @@ with st.sidebar:
     )
     
     # Sync navigation state
-    if top_selection and top_selection != st.session_state.selected_tool:
+    top_idx_active = st.session_state.selected_tool in top_tools
+    bottom_idx_active = st.session_state.selected_tool in bottom_tools_actual
+
+    if top_selection and top_idx_active and top_selection != st.session_state.selected_tool:
         st.session_state.selected_tool = top_selection
         st.rerun()
-    elif bottom_selection_display:
+    elif bottom_selection_display and bottom_idx_active:
         actual = bottom_tools_actual[bottom_tools_display.index(bottom_selection_display)]
         if actual != st.session_state.selected_tool:
+            st.session_state.selected_tool = actual
+            st.rerun()
+    elif top_selection and not top_idx_active and top_selection != st.session_state.selected_tool and top_tools.index(top_selection) == top_idx:
+        st.session_state.selected_tool = top_selection
+        st.rerun()
+    elif bottom_selection_display and not bottom_idx_active and bottom_idx is not None:
+        actual = bottom_tools_actual[bottom_tools_display.index(bottom_selection_display)]
+        if actual != st.session_state.selected_tool and bottom_tools_display.index(bottom_selection_display) == bottom_idx:
             st.session_state.selected_tool = actual
             st.rerun()
     
