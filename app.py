@@ -49,7 +49,7 @@ def clear_all():
     st.session_state.pipeline_run = False
     st.session_state.fix_results = {}
 
-# --- MODERN DEVELOPER-TOOL CUSTOM CSS ---
+# --- ENTERPRISE CUSTOM CSS (ADAPTS TO STREAMLIT LIGHT & DARK THEMES) ---
 st.markdown("""
     <style>
     :root {
@@ -59,10 +59,11 @@ st.markdown("""
         --border-color: #E2E8F0;
         --border-dark: #CBD5E1;
         --text-main: #0F172A;
+        --text-subtitle: #475569;
         --text-muted: #64748B;
-        --primary: #2563EB;
-        --primary-hover: #1D4ED8;
-        --primary-light: #EFF6FF;
+        --primary-btn: #2563EB;
+        --primary-btn-hover: #1D4ED8;
+        --sidebar-bg: #0F172A;
         --success: #059669;
         --success-bg: #ECFDF5;
         --warning: #D97706;
@@ -71,37 +72,73 @@ st.markdown("""
         --error-bg: #FEF2F2;
         --radius: 8px;
     }
+
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-app: #0F172A;
+            --bg-surface: #111827;
+            --bg-subtle: #1E293B;
+            --border-color: #334155;
+            --text-main: #F8FAFC;
+            --text-subtitle: #CBD5E1;
+            --text-muted: #94A3B8;
+            --primary-btn: #60A5FA;
+            --primary-btn-hover: #93C5FD;
+            --sidebar-bg: #020617;
+        }
+    }
     
     .stApp {
         background-color: var(--bg-app);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     
-    /* Top Mode Bar Container */
-    .mode-bar-container {
-        background-color: var(--bg-surface);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius);
-        padding: 12px 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    /* Main Workspace Compact Layout */
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 2rem !important;
     }
-    
+
+    /* Top Header & Subtitle Contrast */
+    section[data-testid="stMain"] h1 {
+        font-size: 1.55rem !important;
+        font-weight: 700 !important;
+        color: var(--text-main) !important;
+        margin-bottom: 0.2rem !important;
+    }
+
+    section[data-testid="stMain"] div[data-testid="stCaptionContainer"] p,
+    section[data-testid="stMain"] .stCaption p,
+    section[data-testid="stMain"] .stCaption {
+        color: var(--text-subtitle) !important;
+        font-size: 0.88rem !important;
+        font-weight: 500 !important;
+        margin-bottom: 0.4rem !important;
+    }
+
+    /* Section Headings Visual Hierarchy */
+    section[data-testid="stMain"] h3 {
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+        color: var(--text-main) !important;
+        margin-bottom: 0.4rem !important;
+    }
+
     /* Card Boxes */
     .card-box {
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
-        padding: 18px;
-        margin-bottom: 18px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        padding: 14px;
+        margin-bottom: 14px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
     
     .card-header-title {
-        font-size: 1.05rem;
+        font-size: 0.98rem;
         font-weight: 700;
         color: var(--text-main);
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -117,13 +154,13 @@ st.markdown("""
         letter-spacing: 0.3px;
     }
     .badge-success { background: var(--success-bg); color: var(--success); border: 1px solid #A7F3D0; }
-    .badge-info { background: var(--primary-light); color: var(--primary); border: 1px solid #BFDBFE; }
+    .badge-info { background: var(--bg-subtle); color: var(--primary-btn); border: 1px solid #BFDBFE; }
     .badge-warning { background: var(--warning-bg); color: var(--warning); border: 1px solid #FDE68A; }
     
     /* Tabs Customization */
     .stTabs [data-baseweb="tab-list"] { gap: 16px; border-bottom: 1px solid var(--border-color); }
-    .stTabs [data-baseweb="tab"] { height: 42px; font-weight: 600; font-size: 0.88rem; color: var(--text-muted); }
-    .stTabs [aria-selected="true"] { color: var(--primary) !important; border-bottom-color: var(--primary) !important; }
+    .stTabs [data-baseweb="tab"] { height: 38px; font-weight: 600; font-size: 0.86rem; color: var(--text-muted); }
+    .stTabs [aria-selected="true"] { color: var(--primary-btn) !important; border-bottom-color: var(--primary-btn) !important; }
     
     .timing-badge {
         display: inline-block;
@@ -137,9 +174,29 @@ st.markdown("""
         font-family: monospace;
     }
 
-    /* Fix Streamlit Widget & Text Rendering Contrast */
+    /* Enterprise Primary Action Button Styling */
+    div.stButton > button[kind="primary"],
+    button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {
+        background-color: var(--primary-btn) !important;
+        color: #FFFFFF !important;
+        border: 1px solid var(--primary-btn-hover) !important;
+        font-weight: 600 !important;
+        border-radius: 6px !important;
+    }
+
+    div.stButton > button[kind="primary"]:hover,
+    button[kind="primary"]:hover,
+    .stButton > button[data-testid="stBaseButton-primary"]:hover {
+        background-color: var(--primary-btn-hover) !important;
+        border-color: var(--primary-btn) !important;
+        color: #FFFFFF !important;
+    }
+
+    /* Main Content Contrast Scoping */
     section[data-testid="stMain"] {
-        color: var(--text-main);
+        background-color: var(--bg-app) !important;
+        color: var(--text-main) !important;
     }
 
     section[data-testid="stMain"] h1,
@@ -172,18 +229,34 @@ st.markdown("""
     section[data-testid="stMain"] div[data-testid="stExpander"] summary div,
     section[data-testid="stMain"] div[data-testid="stExpander"] summary p,
     section[data-testid="stMain"] details summary span,
+    section[data-testid="stMain"] details summary div,
     section[data-testid="stMain"] details summary p {
-        color: #0F172A !important;
+        color: var(--text-main) !important;
     }
 
-    section[data-testid="stMain"] div[data-testid="stCaptionContainer"] p,
-    section[data-testid="stMain"] small {
-        color: #64748B !important;
-    }
-
-    /* Sidebar Dark Theme Scoping */
+    /* Sidebar Dark Navy Theme Scoping */
     section[data-testid="stSidebar"] {
-        background-color: #0F172A !important;
+        background-color: var(--sidebar-bg) !important;
+        padding-top: 0.8rem !important;
+    }
+
+    section[data-testid="stSidebar"] hr {
+        margin: 0.4rem 0 !important;
+        border-color: #1E293B !important;
+    }
+
+    section[data-testid="stSidebar"] h3 {
+        font-size: 0.78rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        color: #94A3B8 !important;
+        margin-top: 0.35rem !important;
+        margin-bottom: 0.2rem !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stRadio"] > div {
+        gap: 3px !important;
     }
 
     section[data-testid="stSidebar"] p,
@@ -209,7 +282,7 @@ st.markdown("""
         color: #94A3B8 !important;
     }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- API CLIENT SETUP ---
 def get_secret(key):
@@ -1094,49 +1167,14 @@ with st.sidebar:
 # --- MAIN WORKSPACE UI ---
 
 if page == "🔄 SAS Converter":
-    # ── Modern Header ──
-    c_head1, c_head2 = st.columns([3, 1])
-    with c_head1:
-        st.title("🔄 SAS → R Converter")
-        st.caption("Modernize SAS programs to production-ready R (tidyverse & Base R)")
-    with c_head2:
-        st.markdown("<div style='text-align:right; margin-top:10px;'><span class='badge-pill badge-info'>Gemini + Groq Router</span></div>", unsafe_allow_html=True)
-    
+    # ── Modern Compact Header ──
+    st.title("🔄 SAS → R Converter")
+    st.caption("Modernize SAS programs to production-ready R (tidyverse & Base R)")
     st.divider()
 
-    # ── Mode & Dialect Controls Bar ──
+    # ── Active Mode & Dialect State (driven by Sidebar) ──
     mode = st.session_state.get("app_mode", "Convert Only")
     r_dialect = st.session_state.get("r_dialect", "Modern R (tidyverse)")
-
-    with st.container():
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            selected_mode = st.radio(
-                "Conversion Mode",
-                ["Convert Only", "Convert + Execute + Validate"],
-                index=0 if mode == "Convert Only" else 1,
-                horizontal=True,
-                key="top_app_mode"
-            )
-            if selected_mode != st.session_state.get("app_mode"):
-                st.session_state["app_mode"] = selected_mode
-                st.session_state["sb_app_mode"] = selected_mode
-                st.rerun()
-
-        with col_m2:
-            selected_dialect = st.radio(
-                "Target R Dialect",
-                ["Modern R (tidyverse)", "Base R"],
-                index=0 if "tidyverse" in r_dialect else 1,
-                horizontal=True,
-                key="top_r_dialect"
-            )
-            if selected_dialect != st.session_state.get("r_dialect"):
-                st.session_state["r_dialect"] = selected_dialect
-                st.session_state["sb_r_dialect"] = selected_dialect
-                st.rerun()
-
-    st.divider()
 
     # ── Shared 2-Column Code Workspace ──
     col_left, col_right = st.columns(2)
