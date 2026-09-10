@@ -59,7 +59,7 @@ def toggle_r_review():
 # --- ENTERPRISE CUSTOM CSS (ADAPTS TO LIGHT & DARK THEMES) ---
 st.markdown("""
     <style>
-    :root {
+    :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
         --bg-app: var(--background-color, #F8FAFC);
         --bg-surface: var(--secondary-background-color, #FFFFFF);
         --bg-subtle: var(--secondary-background-color, #F1F5F9);
