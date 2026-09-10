@@ -1,6 +1,7 @@
 import os, re, subprocess, tempfile, io, time, shutil
 import pandas as pd
 import streamlit as st 
+import streamlit.components.v1 as components
 from google import genai
 from groq import Groq
 from graph_builder import render_graph_builder_tab, render_clinical_graphs_tab
@@ -55,28 +56,28 @@ def clear_all():
 def toggle_r_review():
     st.session_state.show_r_review = not st.session_state.get("show_r_review", False)
 
-# --- ENTERPRISE CUSTOM CSS (ADAPTS TO STREAMLIT LIGHT & DARK THEMES) ---
+# --- ENTERPRISE CUSTOM CSS (ADAPTS TO LIGHT & DARK THEMES) ---
 st.markdown("""
     <style>
     :root {
-        --bg-app: #F8FAFC;
-        --bg-surface: #FFFFFF;
-        --bg-subtle: #F1F5F9;
-        --border-color: #E2E8F0;
-        --border-dark: #CBD5E1;
-        --text-main: #0F172A;
-        --text-subtitle: #475569;
-        --text-muted: #64748B;
+        --bg-app: var(--background-color, #F8FAFC);
+        --bg-surface: var(--secondary-background-color, #FFFFFF);
+        --bg-subtle: var(--secondary-background-color, #F1F5F9);
+        --border-color: rgba(128, 128, 128, 0.22);
+        --border-dark: rgba(128, 128, 128, 0.35);
+        --text-main: var(--text-color, #0F172A);
+        --text-subtitle: var(--text-color, #475569);
+        --text-muted: rgba(100, 116, 139, 0.85);
         --primary-btn: #2563EB;
         --primary-btn-hover: #1D4ED8;
-        --secondary-btn-bg: #FFFFFF;
-        --secondary-btn-hover: #F1F5F9;
-        --secondary-btn-border: #E2E8F0;
-        --secondary-btn-text: #0F172A;
-        --sidebar-bg: #F8FAFC;
-        --sidebar-border: #E2E8F0;
-        --nav-selected-bg: #DBEAFE;
-        --nav-selected-text: #1D4ED8;
+        --secondary-btn-bg: var(--secondary-background-color, #FFFFFF);
+        --secondary-btn-hover: rgba(128, 128, 128, 0.08);
+        --secondary-btn-border: rgba(128, 128, 128, 0.22);
+        --secondary-btn-text: var(--text-color, #0F172A);
+        --sidebar-bg: var(--secondary-background-color, #F8FAFC);
+        --sidebar-border: rgba(128, 128, 128, 0.2);
+        --nav-selected-bg: rgba(37, 99, 235, 0.15);
+        --nav-selected-text: #2563EB;
         --success: #059669;
         --success-bg: #ECFDF5;
         --warning: #D97706;
@@ -86,29 +87,6 @@ st.markdown("""
         --radius: 8px;
     }
 
-    @media (prefers-color-scheme: dark) {
-        :root {
-            --bg-app: #0F172A;
-            --bg-surface: #111827;
-            --bg-subtle: #1E293B;
-            --border-color: #334155;
-            --border-dark: #475569;
-            --text-main: #F8FAFC;
-            --text-subtitle: #CBD5E1;
-            --text-muted: #94A3B8;
-            --primary-btn: #60A5FA;
-            --primary-btn-hover: #93C5FD;
-            --secondary-btn-bg: #1E293B;
-            --secondary-btn-hover: #334155;
-            --secondary-btn-border: #334155;
-            --secondary-btn-text: #F8FAFC;
-            --sidebar-bg: #0F172A;
-            --sidebar-border: #1E293B;
-            --nav-selected-bg: #1E3A5F;
-            --nav-selected-text: #93C5FD;
-        }
-    }
-    
     .stApp {
         background-color: var(--bg-app);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
