@@ -73,7 +73,10 @@ st.markdown("""
         --secondary-btn-hover: #F1F5F9;
         --secondary-btn-border: #E2E8F0;
         --secondary-btn-text: #0F172A;
-        --sidebar-bg: #0F172A;
+        --sidebar-bg: #F8FAFC;
+        --sidebar-border: #E2E8F0;
+        --nav-selected-bg: #DBEAFE;
+        --nav-selected-text: #1D4ED8;
         --success: #059669;
         --success-bg: #ECFDF5;
         --warning: #D97706;
@@ -99,7 +102,10 @@ st.markdown("""
             --secondary-btn-hover: #334155;
             --secondary-btn-border: #334155;
             --secondary-btn-text: #F8FAFC;
-            --sidebar-bg: #020617;
+            --sidebar-bg: #0F172A;
+            --sidebar-border: #1E293B;
+            --nav-selected-bg: #1E3A5F;
+            --nav-selected-text: #93C5FD;
         }
     }
     
@@ -565,33 +571,222 @@ st.markdown("""
         color: var(--text-main) !important;
     }
 
-    /* Sidebar Dark Navy Theme Scoping */
+    /* Phase 8.81.1 Sidebar Navigation & MORE Suboptions Styling */
     section[data-testid="stSidebar"] {
         background-color: var(--sidebar-bg) !important;
-        padding-top: 0.8rem !important;
+        border-right: 1px solid var(--sidebar-border) !important;
+        padding-top: 0.4rem !important;
     }
 
     section[data-testid="stSidebar"][aria-expanded="true"] {
-        min-width: 260px !important;
+        min-width: 230px !important;
+        max-width: 230px !important;
+        width: 230px !important;
     }
 
-    section[data-testid="stSidebar"] hr {
-        margin: 0.4rem 0 !important;
-        border-color: #1E293B !important;
+    /* Primary Navigation Radio (Top of Sidebar - No WORKSPACE Label) */
+    section[data-testid="stSidebar"] div[data-testid="stRadio"]:has(div[aria-label="main_nav"]) {
+        margin-top: 0px !important;
+        margin-bottom: 6px !important;
     }
 
-    section[data-testid="stSidebar"] h3 {
-        font-size: 0.78rem !important;
-        font-weight: 700 !important;
+    /* Sidebar Expander Customization */
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        margin: 2px 0 !important;
+        border-radius: 6px !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+        border: none !important;
+        background-color: transparent !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+        background-color: transparent !important;
+        color: var(--text-muted) !important;
+        font-weight: 600 !important;
+        font-size: 12px !important;
+        letter-spacing: 0.05em !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-        color: #94A3B8 !important;
-        margin-top: 0.35rem !important;
-        margin-bottom: 0.2rem !important;
+        border-bottom: none !important;
+        padding: 6px 2px !important;
+        border-radius: 6px !important;
     }
 
-    section[data-testid="stSidebar"] div[data-testid="stRadio"] > div {
-        gap: 3px !important;
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary:hover {
+        background-color: var(--secondary-btn-hover) !important;
+        color: var(--text-main) !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary span,
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary p,
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary svg {
+        color: var(--text-muted) !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
+        padding: 2px 0 2px 4px !important;
+        background-color: transparent !important;
+    }
+
+    /* Nested expanders inside MORE - Interactive Utility/Navigation Rows */
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] div[data-testid="stExpander"] {
+        margin: 3px 0 !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] div[data-testid="stExpander"] summary {
+        min-height: 36px !important;
+        height: 36px !important;
+        padding: 5px 8px !important;
+        margin: 2px 0 !important;
+        border-radius: 6px !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        text-transform: none !important;
+        letter-spacing: normal !important;
+        color: var(--text-main) !important;
+        display: flex !important;
+        align-items: center !important;
+        cursor: pointer !important;
+        background-color: transparent !important;
+        transition: background-color 0.15s ease, color 0.15s ease !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] div[data-testid="stExpander"] summary:hover {
+        background-color: var(--secondary-btn-hover) !important;
+        color: var(--text-main) !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] div[data-testid="stExpander"] summary span,
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] div[data-testid="stExpander"] summary p {
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        color: var(--text-main) !important;
+    }
+
+    /* Structured Supported SAS Statements Grid */
+    .supported-statements-list {
+        padding: 4px 0;
+        font-size: 12px;
+        color: var(--text-main);
+    }
+    .stmt-row {
+        display: grid;
+        grid-template-columns: 22px 105px 1fr;
+        align-items: center;
+        padding: 4px 0;
+        border-bottom: 1px dashed var(--border-color);
+    }
+    .stmt-row:last-child {
+        border-bottom: none;
+    }
+    .stmt-check {
+        font-size: 11px;
+    }
+    .stmt-name {
+        font-weight: 600;
+        color: var(--text-main);
+        font-size: 12px;
+    }
+    .stmt-detail {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
+    /* Structured App Features Grid */
+    .app-features-list {
+        padding: 4px 0;
+        font-size: 13px;
+        color: var(--text-main);
+        line-height: 1.4;
+    }
+    .feature-row {
+        display: grid;
+        grid-template-columns: 24px 1fr;
+        align-items: start;
+        padding: 4px 0;
+    }
+    .feature-icon {
+        font-size: 13px;
+        line-height: 1.4;
+    }
+    .feature-desc {
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--text-main);
+        line-height: 1.4;
+    }
+
+    /* Navigation Radio Items - Hide Radio Circles for main_nav & clinical_nav */
+    section[data-testid="stSidebar"] div[data-testid="stRadio"]:has(div[aria-label="main_nav"]) > label[data-testid="stWidgetLabel"],
+    section[data-testid="stSidebar"] div[data-testid="stRadio"]:has(div[aria-label="clinical_nav"]) > label[data-testid="stWidgetLabel"] {
+        display: none !important;
+    }
+
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="main_nav"] label[data-baseweb="radio"] > div:first-child,
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="clinical_nav"] label[data-baseweb="radio"] > div:first-child {
+        display: none !important;
+    }
+
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="main_nav"] label[data-baseweb="radio"],
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="clinical_nav"] label[data-baseweb="radio"] {
+        width: 100% !important;
+        min-height: 36px !important;
+        height: 36px !important;
+        padding: 5px 8px !important;
+        margin: 2px 0 !important;
+        border-radius: 6px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        transition: background-color 0.15s ease, color 0.15s ease !important;
+        background-color: transparent !important;
+        color: var(--text-main) !important;
+    }
+
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="main_nav"] label[data-baseweb="radio"]:hover,
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="clinical_nav"] label[data-baseweb="radio"]:hover {
+        background-color: var(--secondary-btn-hover) !important;
+    }
+
+    /* Selected State for main_nav & clinical_nav */
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="main_nav"] label[data-baseweb="radio"]:has(input:checked),
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="clinical_nav"] label[data-baseweb="radio"]:has(input:checked) {
+        background-color: var(--nav-selected-bg) !important;
+        color: var(--nav-selected-text) !important;
+        font-weight: 600 !important;
+    }
+
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="main_nav"] label[data-baseweb="radio"]:has(input:checked) p,
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="clinical_nav"] label[data-baseweb="radio"]:has(input:checked) p,
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="main_nav"] label[data-baseweb="radio"]:has(input:checked) span,
+    section[data-testid="stSidebar"] div[role="radiogroup"][aria-label="clinical_nav"] label[data-baseweb="radio"]:has(input:checked) span {
+        color: var(--nav-selected-text) !important;
+        font-weight: 600 !important;
+    }
+
+    /* Settings Selectbox Controls */
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] {
+        margin-bottom: 8px !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label,
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label p {
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        color: var(--text-subtitle) !important;
+        margin-bottom: 4px !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        min-height: 38px !important;
+        height: 38px !important;
+        font-size: 13px !important;
     }
 
     section[data-testid="stSidebar"] p,
@@ -606,15 +801,13 @@ st.markdown("""
     section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p,
     section[data-testid="stSidebar"] div[data-testid="stRadio"] label,
     section[data-testid="stSidebar"] div[data-testid="stRadio"] label p,
-    section[data-testid="stSidebar"] div[data-testid="stRadio"] label span,
-    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary span,
-    section[data-testid="stSidebar"] div[data-testid="stExpander"] summary p {
-        color: #F8FAFC !important;
+    section[data-testid="stSidebar"] div[data-testid="stRadio"] label span {
+        color: var(--text-main) !important;
     }
 
     section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p,
     section[data-testid="stSidebar"] small {
-        color: #94A3B8 !important;
+        color: var(--text-muted) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -1325,7 +1518,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
             res_entry["elapsed_total"] = time.time() - step_start
 
         pipeline_results.append(res_entry)
-
     # Complete the progress bar
     if progress_bar is not None:
         progress_bar.progress(1.0, text=f"✅ All {total_steps} steps processed!")
@@ -1337,103 +1529,86 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
 
 # --- SIDEBAR NAVIGATION & SETTINGS ---
 with st.sidebar:
-    st.markdown("### 🗂️ Navigation")
-    st.divider()
-    
     if "selected_tool" not in st.session_state:
         st.session_state.selected_tool = "🔄 SAS Converter"
     
-    top_tools = ["🔄 SAS Converter", "📊 Graph Builder"]
-    top_selection = st.radio(
+    top_tools_display = ["🔄 SAS Converter"]
+    top_tools_actual  = ["🔄 SAS Converter"]
+
+    top_idx = top_tools_actual.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools_actual else None
+    top_selection_display = st.radio(
         "main_nav",
-        top_tools,
-        index=top_tools.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools else None,
+        top_tools_display,
+        index=top_idx,
         label_visibility="collapsed"
     )
     
-    st.divider()
-    st.markdown("### 📋 Clinical Tools")
-    
-    bottom_tools_display = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs", "📋 TLF from Shell"]
+    bottom_tools_display = ["📋 Clinical Tables", "📄 Clinical Listings", "📈 Clinical Graphs", "📑 TLF from Shell"]
     bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs", "📋 TLF from Shell"]
-    
-    bottom_idx = bottom_tools_actual.index(st.session_state.selected_tool) if st.session_state.selected_tool in bottom_tools_actual else None
-    bottom_selection_display = st.radio(
-        "clinical_nav",
-        bottom_tools_display,
-        index=bottom_idx,
-        label_visibility="collapsed"
-    )
+    is_clinical_active = st.session_state.selected_tool in bottom_tools_actual
+
+    with st.expander("CLINICAL", expanded=is_clinical_active):
+        bottom_idx = bottom_tools_actual.index(st.session_state.selected_tool) if is_clinical_active else None
+        bottom_selection_display = st.radio(
+            "clinical_nav",
+            bottom_tools_display,
+            index=bottom_idx,
+            label_visibility="collapsed"
+        )
     
     # Sync navigation state
-    top_idx_active = st.session_state.selected_tool in top_tools
-    bottom_idx_active = st.session_state.selected_tool in bottom_tools_actual
+    top_idx_active = st.session_state.selected_tool in top_tools_actual
+    bottom_idx_active = is_clinical_active
 
-    if top_selection and top_idx_active and top_selection != st.session_state.selected_tool:
-        st.session_state.selected_tool = top_selection
-        st.rerun()
+    if top_selection_display and top_idx_active:
+        actual = top_tools_actual[top_tools_display.index(top_selection_display)]
+        if actual != st.session_state.selected_tool:
+            st.session_state.selected_tool = actual
+            st.rerun()
     elif bottom_selection_display and bottom_idx_active:
         actual = bottom_tools_actual[bottom_tools_display.index(bottom_selection_display)]
         if actual != st.session_state.selected_tool:
             st.session_state.selected_tool = actual
             st.rerun()
-    elif top_selection and not top_idx_active and top_selection != st.session_state.selected_tool and top_tools.index(top_selection) == top_idx:
-        st.session_state.selected_tool = top_selection
-        st.rerun()
-    elif bottom_selection_display and not bottom_idx_active and bottom_idx is not None:
+    elif top_selection_display and not top_idx_active and top_selection_display:
+        actual = top_tools_actual[top_tools_display.index(top_selection_display)]
+        if actual != st.session_state.selected_tool:
+            st.session_state.selected_tool = actual
+            st.rerun()
+    elif bottom_selection_display and not bottom_idx_active and bottom_selection_display:
         actual = bottom_tools_actual[bottom_tools_display.index(bottom_selection_display)]
-        if actual != st.session_state.selected_tool and bottom_tools_display.index(bottom_selection_display) == bottom_idx:
+        if actual != st.session_state.selected_tool:
             st.session_state.selected_tool = actual
             st.rerun()
     
     page = st.session_state.selected_tool
-    st.divider()
     
-    if page == "🔄 SAS Converter":
-        st.markdown("### ⚙️ Settings")
-        
-        # Sync sidebar choices with session state
-        sb_mode = st.radio(
-            "App Mode", 
-            ["Convert Only", "Convert + Execute + Validate"],
-            index=0 if st.session_state.get("app_mode") == "Convert Only" else 1,
+    with st.expander("SETTINGS", expanded=False):
+        app_mode_opts = ["Convert Only", "Convert + Execute + Validate"]
+        curr_app_mode = st.session_state.get("app_mode", "Convert Only")
+        sb_mode = st.selectbox(
+            "App Mode",
+            app_mode_opts,
+            index=app_mode_opts.index(curr_app_mode) if curr_app_mode in app_mode_opts else 0,
             key="sb_app_mode"
         )
         if sb_mode != st.session_state.get("app_mode"):
             st.session_state["app_mode"] = sb_mode
             st.rerun()
-            
-        st.divider()
-        sb_dialect = st.radio(
-            "R Dialect", 
-            ["Base R", "Modern R (tidyverse)"],
-            index=0 if st.session_state.get("r_dialect") == "Base R" else 1,
+
+        r_dialect_opts = ["Base R", "Modern R (tidyverse)"]
+        curr_r_dialect = st.session_state.get("r_dialect", "Modern R (tidyverse)")
+        sb_dialect = st.selectbox(
+            "R Dialect",
+            r_dialect_opts,
+            index=r_dialect_opts.index(curr_r_dialect) if curr_r_dialect in r_dialect_opts else 1,
             key="sb_r_dialect"
         )
         if sb_dialect != st.session_state.get("r_dialect"):
             st.session_state["r_dialect"] = sb_dialect
             st.rerun()
-            
-        st.divider()
 
-        # ── R ENVIRONMENT DIAGNOSTICS ──
-        with st.expander("🔧 R Environment Diagnostics"):
-            rscript_path = shutil.which("Rscript")
-            if rscript_path:
-                st.success(f"✅ Rscript found: `{rscript_path}`")
-                try:
-                    res = subprocess.run([rscript_path, "-e", "cat(R.version.string)"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-                    if res.returncode == 0:
-                        st.info(f"ℹ️ R Version: `{res.stdout.strip()}`")
-                    else:
-                        st.warning(f"⚠️ Rscript execution check failed: {res.stderr.strip()}")
-                except Exception as e:
-                    st.error(f"❌ Error checking R version: {str(e)}")
-            else:
-                st.error("❌ Rscript NOT found in system PATH.")
-                st.caption("Ensure `packages.txt` includes `r-base` when deploying to Streamlit Cloud.")
-
-        st.divider()
+    with st.expander("MORE", expanded=False):
         with st.expander("📖 How to Use"):
             st.markdown("""
 **Convert Only:**
@@ -1451,24 +1626,28 @@ with st.sidebar:
 
         with st.expander("✨ What this app does"):
             st.markdown("""
-🔄 Converts SAS code to R automatically
-✅ Executes & validates R output
-🔧 Auto-fixes R errors on failure
-🔄 Fix & Retry on output mismatch
-📊 Side by side SAS vs R comparison
-⏱️ Per-step timing metrics
-📥 Downloads full R script
-""")
+<div class="app-features-list">
+  <div class="feature-row"><span class="feature-icon">🔄</span><span class="feature-desc">Converts SAS code to R automatically</span></div>
+  <div class="feature-row"><span class="feature-icon">✅</span><span class="feature-desc">Executes &amp; validates R output</span></div>
+  <div class="feature-row"><span class="feature-icon">🔧</span><span class="feature-desc">Auto-fixes R errors on failure</span></div>
+  <div class="feature-row"><span class="feature-icon">🔄</span><span class="feature-desc">Fix &amp; Retry on output mismatch</span></div>
+  <div class="feature-row"><span class="feature-icon">📊</span><span class="feature-desc">Side by side SAS vs R comparison</span></div>
+  <div class="feature-row"><span class="feature-icon">⏱️</span><span class="feature-desc">Per-step timing metrics</span></div>
+  <div class="feature-row"><span class="feature-icon">📥</span><span class="feature-desc">Downloads full R script</span></div>
+</div>
+""", unsafe_allow_html=True)
 
-        with st.expander("📋 Supported SAS Statements"):
+        with st.expander("✓ Supported SAS Statements"):
             st.markdown("""
-✅ DATA step (SET, IF/ELSE, mutate)
-✅ PROC SORT
-✅ PROC MEANS
-✅ PROC FREQ
-✅ PROC SQL (JOIN, GROUP BY, HAVING)
-✅ PROC TRANSPOSE
-""")
+<div class="supported-statements-list">
+  <div class="stmt-row"><span class="stmt-check">✅</span><span class="stmt-name">DATA step</span><span class="stmt-detail">SET, IF/ELSE, mutate</span></div>
+  <div class="stmt-row"><span class="stmt-check">✅</span><span class="stmt-name">PROC SORT</span><span class="stmt-detail"></span></div>
+  <div class="stmt-row"><span class="stmt-check">✅</span><span class="stmt-name">PROC MEANS</span><span class="stmt-detail"></span></div>
+  <div class="stmt-row"><span class="stmt-check">✅</span><span class="stmt-name">PROC FREQ</span><span class="stmt-detail"></span></div>
+  <div class="stmt-row"><span class="stmt-check">✅</span><span class="stmt-name">PROC SQL</span><span class="stmt-detail">JOIN, GROUP BY, HAVING</span></div>
+  <div class="stmt-row"><span class="stmt-check">✅</span><span class="stmt-name">PROC TRANSPOSE</span><span class="stmt-detail"></span></div>
+</div>
+""", unsafe_allow_html=True)
 
         with st.expander("💡 Tips & Hints"):
             st.markdown("""
@@ -1477,9 +1656,26 @@ with st.sidebar:
 - Use **Modern R** for cleaner code
 - Use **Base R** for maximum compatibility
 """)
+
+        with st.expander("⚙ R Environment Diagnostics"):
+            rscript_path = shutil.which("Rscript")
+            if rscript_path:
+                st.success(f"✅ Rscript found: `{rscript_path}`")
+                try:
+                    res = subprocess.run([rscript_path, "-e", "cat(R.version.string)"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+                    if res.returncode == 0:
+                        st.info(f"ℹ️ R Version: `{res.stdout.strip()}`")
+                    else:
+                        st.warning(f"⚠️ Rscript execution check failed: {res.stderr.strip()}")
+                except Exception as e:
+                    st.error(f"❌ Error checking R version: {str(e)}")
+            else:
+                st.error("❌ Rscript NOT found in system PATH.")
+                st.caption("Ensure `packages.txt` includes `r-base` when deploying to Streamlit Cloud.")
+
         st.caption("Built with Gemini + Groq + Rscript")
 
-    elif page == "📋 TLF from Shell":
+    if page == "📋 TLF from Shell":
         st.markdown("### 📋 TLF from Shell")
         st.markdown("""
 **How to use:**
@@ -1515,7 +1711,7 @@ with st.sidebar:
 if page == "🔄 SAS Converter":
     # ── Modern Compact Header ──
     st.title("🔄 SAS → R Converter")
-    st.caption("Modernize SAS programs to production-ready R (tidyverse & Base R)")
+    st.caption("Convert SAS programs to production-ready R")
     st.divider()
 
     # ── Active Mode & Dialect State (driven by Sidebar) ──
@@ -1581,10 +1777,10 @@ proc sql;
 quit;"""
         }
 
-        # Compact Header Row: SAS Input Title + Sample Selector
+        # Compact Header Row: SAS Source Title + Sample Selector
         hdr_left, hdr_right = st.columns([1.5, 1])
         with hdr_left:
-            st.markdown("### 📋 SAS Input")
+            st.markdown("### 📋 SAS Source")
         with hdr_right:
             chosen_preset = st.selectbox(
                 "Sample Script",
