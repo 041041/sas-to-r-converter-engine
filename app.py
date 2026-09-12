@@ -35,7 +35,7 @@ for key, default in {
     "graph_preview_png": None,
     "graph_r_code_pending": None,
     "graph_r_code_original": None,
-    "page": "🔄 SAS Converter",
+    "page": "SAS Converter",
     "app_mode": "Convert Only",
     "r_dialect": "Modern R (tidyverse)"
 }.items():
@@ -1508,10 +1508,10 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
 # --- SIDEBAR NAVIGATION & SETTINGS ---
 with st.sidebar:
     if "selected_tool" not in st.session_state:
-        st.session_state.selected_tool = "🔄 SAS Converter"
+        st.session_state.selected_tool = "SAS Converter"
     
-    top_tools_display = ["🔄 SAS Converter"]
-    top_tools_actual  = ["🔄 SAS Converter"]
+    top_tools_display = ["SAS Converter"]
+    top_tools_actual  = ["SAS Converter"]
 
     top_idx = top_tools_actual.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools_actual else None
     top_selection_display = st.radio(
@@ -1686,7 +1686,7 @@ with st.sidebar:
 
 # --- MAIN WORKSPACE UI ---
 
-if page == "🔄 SAS Converter":
+if page == "SAS Converter":
     # ── Modern Compact Header ──
     st.title("🔄 SAS → R Converter")
     st.caption("Convert SAS programs to production-ready R")
