@@ -60,30 +60,30 @@ def toggle_r_review():
 st.markdown("""
     <style>
     :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
-        --bg-app: var(--background-color, #F8FAFC);
-        --bg-surface: var(--secondary-background-color, #FFFFFF);
-        --bg-subtle: var(--secondary-background-color, #F1F5F9);
-        --border-color: rgba(128, 128, 128, 0.22);
+        --bg-app: transparent;
+        --bg-surface: rgba(128, 128, 128, 0.05);
+        --bg-subtle: rgba(128, 128, 128, 0.08);
+        --border-color: rgba(128, 128, 128, 0.2);
         --border-dark: rgba(128, 128, 128, 0.35);
-        --text-main: var(--text-color, #0F172A);
-        --text-subtitle: var(--text-color, #475569);
-        --text-muted: rgba(100, 116, 139, 0.85);
+        --text-main: inherit;
+        --text-subtitle: inherit;
+        --text-muted: rgba(128, 128, 128, 0.75);
         --primary-btn: #2563EB;
         --primary-btn-hover: #1D4ED8;
-        --secondary-btn-bg: var(--secondary-background-color, #FFFFFF);
-        --secondary-btn-hover: rgba(128, 128, 128, 0.08);
+        --secondary-btn-bg: rgba(128, 128, 128, 0.06);
+        --secondary-btn-hover: rgba(128, 128, 128, 0.12);
         --secondary-btn-border: rgba(128, 128, 128, 0.22);
-        --secondary-btn-text: var(--text-color, #0F172A);
-        --sidebar-bg: var(--secondary-background-color, #F8FAFC);
+        --secondary-btn-text: inherit;
+        --sidebar-bg: transparent;
         --sidebar-border: rgba(128, 128, 128, 0.2);
         --nav-selected-bg: rgba(37, 99, 235, 0.15);
         --nav-selected-text: #2563EB;
         --success: #059669;
-        --success-bg: #ECFDF5;
+        --success-bg: rgba(5, 150, 105, 0.1);
         --warning: #D97706;
-        --warning-bg: #FFFBEB;
+        --warning-bg: rgba(217, 119, 6, 0.1);
         --error: #DC2626;
-        --error-bg: #FEF2F2;
+        --error-bg: rgba(220, 38, 38, 0.1);
         --radius: 8px;
     }
 
@@ -212,12 +212,12 @@ st.markdown("""
     
     .timing-badge {
         display: inline-block;
-        background: #f0f2f6;
-        border: 1px solid #d0d4de;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border-color);
         border-radius: 12px;
         padding: 2px 10px;
         font-size: 0.78em;
-        color: #555;
+        color: var(--text-muted);
         margin-left: 8px;
         font-family: monospace;
     }
