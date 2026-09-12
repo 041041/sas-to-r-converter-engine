@@ -1990,7 +1990,7 @@ quit;"""
                         c3.metric("Dependencies", res_summary["dependencies_count"])
                         c4.metric("Resolved", f"{res_summary['resolved_count']}/{res_summary['macros_count']}")
 
-                        st.caption(f"Status: **{res_summary['status']}**")
+                        st.caption(f"Status: **{res_summary['status']}** | Program type: **{res_summary['program_type']}**")
 
                         if project_context.errors:
                             for err in project_context.errors:
@@ -2091,12 +2091,16 @@ quit;"""
         from macro_converter import parse_sas_source, convert_macros_to_r, classify_macro
         parsed_source = parse_sas_source(sas_script)
         _macro_defs = parsed_source["macro_definitions"]
-        has_path_b = any(classify_macro(m, m_def, all_macro_defs=_macro_defs) == "PATH_B" for m, m_def in _macro_defs.items()) if _macro_defs else False
 
         extra_files = []
         project_context = st.session_state.get("project_context")
         if project_context and project_context.ordered_supporting_content and len(st.session_state.get("active_supporting_files", [])) > 0:
             extra_files = project_context.ordered_supporting_content
+            # Populate macro definitions from project registry
+            for norm_name, mdef in project_context.macro_registry.items():
+                if norm_name not in _macro_defs:
+                    sub_parsed = parse_sas_source(mdef.source_content)
+                    _macro_defs.update(sub_parsed.get("macro_definitions", {}))
         else:
             active_sup_files = st.session_state.get("active_supporting_files", [])
             if active_sup_files:
@@ -2105,6 +2109,8 @@ quit;"""
                         extra_files.append(sf.getvalue().decode('utf-8', errors='ignore'))
                     except Exception:
                         pass
+
+        has_path_b = any(classify_macro(m, m_def, all_macro_defs=_macro_defs) == "PATH_B" for m, m_def in _macro_defs.items()) if _macro_defs else False
 
         sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra_files, expand_path_b=not has_path_b)
 
@@ -2157,11 +2163,31 @@ quit;"""
                 )
                 steps = step_pattern.findall(sas_script)
                 if not steps:
-                    st.error("No valid SAS steps found.")
-                    st.stop()
+                    if _macro_defs and macro_result.get("r_functions"):
+                        # MACRO-LIBRARY CONVERSION PATH (No executable steps required)
+                        all_r = ["# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n"]
+                        combined_r = "\n".join(all_r)
+                        st.session_state.pipeline_results = [{
+                            "name": "MACRO_LIBRARY",
+                            "step": sas_script,
+                            "r_code": combined_r,
+                            "r_output": None,
+                            "error": None,
+                            "comparison": None,
+                            "is_final": True,
+                            "elapsed_llm": 0.0,
+                            "elapsed_exec": 0.0,
+                            "elapsed_total": 0.0,
+                            "r_log": "Macro library definitions converted to R functions successfully."
+                        }]
+                        st.session_state.pipeline_run = True
+                        st.rerun()
+                    else:
+                        st.error("No valid SAS steps found.")
+                        st.stop()
 
                 all_r = []
-                if has_path_b and _macro_defs and macro_result.get("r_functions"):
+                if _macro_defs and macro_result.get("r_functions"):
                     all_r.append("# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n")
 
                 known_tables = []

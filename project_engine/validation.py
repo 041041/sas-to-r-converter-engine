@@ -6,6 +6,7 @@ Project Validator for formatting project analysis summaries and error/warning me
 
 from __future__ import annotations
 from project_engine.models import ProjectContext, ResolutionStatus
+from project_engine.classifier import ProgramClassifier
 
 
 class ProjectValidator:
@@ -16,9 +17,13 @@ class ProjectValidator:
         res = context.resolution_result
         status = res.status
 
+        classifier = ProgramClassifier()
+        prog_type = classifier.classify_source(context.main_program_content or "")
+
         summary = {
             "is_valid": status == ResolutionStatus.RESOLVED,
             "status": status.value if isinstance(status, ResolutionStatus) else str(status),
+            "program_type": prog_type.value if hasattr(prog_type, "value") else str(prog_type),
             "files_count": len(context.project_files),
             "macros_count": len(context.macro_registry),
             "dependencies_count": len(context.dependency_graph.edges),

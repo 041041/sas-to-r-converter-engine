@@ -21,6 +21,7 @@ from project_engine.dependency_graph import DependencyGraphBuilder
 from project_engine.resolver import DependencyResolver
 from project_engine.analyzer import ProjectAnalyzer
 from project_engine.validation import ProjectValidator
+from project_engine.classifier import ProgramType, ProgramClassifier
 
 __all__ = [
     "ProjectContext",
@@ -38,4 +39,6 @@ __all__ = [
     "DependencyResolver",
     "ProjectAnalyzer",
     "ProjectValidator",
+    "ProgramType",
+    "ProgramClassifier",
 ]
