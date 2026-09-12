@@ -1960,6 +1960,48 @@ quit;"""
                     for sf in supporting_files:
                         st.markdown(f"• `{sf.name}`")
 
+                # Project Engine Dependency Architecture Analysis
+                file_tuples = []
+                for f in uploaded_project_files:
+                    try:
+                        c_str = f.getvalue().decode("utf-8", errors="ignore")
+                        file_tuples.append((f.name, c_str))
+                    except Exception:
+                        pass
+
+                if file_tuples:
+                    from project_engine import ProjectAnalyzer, ProjectValidator, ResolutionStatus
+                    analyzer = ProjectAnalyzer()
+                    project_context = analyzer.analyze_project(file_tuples, main_filename=selected_main_name)
+                    st.session_state["project_context"] = project_context
+
+                    with st.expander("📊 Project Analysis & Dependency Resolution", expanded=False):
+                        res_summary = ProjectValidator().validate(project_context)
+
+                        c1, c2 = st.columns(2)
+                        c1.metric("Files", res_summary["files_count"])
+                        c2.metric("Discovered Macros", res_summary["macros_count"])
+
+                        c3, c4 = st.columns(2)
+                        c3.metric("Dependencies", res_summary["dependencies_count"])
+                        c4.metric("Resolved", f"{res_summary['resolved_count']}/{res_summary['macros_count']}")
+
+                        st.caption(f"Status: **{res_summary['status']}**")
+
+                        if project_context.errors:
+                            for err in project_context.errors:
+                                st.error(f"⚠️ {err}")
+                        elif project_context.warnings:
+                            for wrn in project_context.warnings:
+                                st.warning(f"💡 {wrn}")
+
+                        if res_summary["macros_count"] > 0 or res_summary["dependencies_count"] > 0:
+                            st.markdown("**Dependency Graph:**")
+                            tree_view = ProjectValidator().format_tree_view(project_context)
+                            st.code(tree_view, language="text")
+        else:
+            st.session_state["project_context"] = None
+
     # Store supporting_files in session_state for pipeline retrieval
     st.session_state["active_supporting_files"] = supporting_files
 
@@ -2048,13 +2090,17 @@ quit;"""
         has_path_b = any(classify_macro(m, m_def, all_macro_defs=_macro_defs) == "PATH_B" for m, m_def in _macro_defs.items()) if _macro_defs else False
 
         extra_files = []
-        active_sup_files = st.session_state.get("active_supporting_files", [])
-        if active_sup_files:
-            for sf in active_sup_files:
-                try:
-                    extra_files.append(sf.getvalue().decode('utf-8', errors='ignore'))
-                except Exception:
-                    pass
+        project_context = st.session_state.get("project_context")
+        if project_context and project_context.ordered_supporting_content and len(st.session_state.get("active_supporting_files", [])) > 0:
+            extra_files = project_context.ordered_supporting_content
+        else:
+            active_sup_files = st.session_state.get("active_supporting_files", [])
+            if active_sup_files:
+                for sf in active_sup_files:
+                    try:
+                        extra_files.append(sf.getvalue().decode('utf-8', errors='ignore'))
+                    except Exception:
+                        pass
 
         sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra_files, expand_path_b=not has_path_b)
 
