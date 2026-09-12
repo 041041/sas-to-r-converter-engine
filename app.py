@@ -52,6 +52,8 @@ def clear_all():
     st.session_state.loaded_project_file = None
     st.session_state.show_r_review = False
     st.session_state.current_conv_result = None
+    st.session_state.pop("pending_project_editor_content", None)
+    st.session_state["project_context"] = None
 
 def toggle_r_review():
     st.session_state.show_r_review = not st.session_state.get("show_r_review", False)
@@ -1767,7 +1769,9 @@ quit;"""
                 label_visibility="collapsed"
             )
 
-        if chosen_preset and sample_presets[chosen_preset]:
+        if st.session_state.get("pending_project_editor_content") is not None:
+            st.session_state["sas_input"] = st.session_state.pop("pending_project_editor_content")
+        elif chosen_preset and sample_presets[chosen_preset]:
             st.session_state.sas_input = sample_presets[chosen_preset]
 
         sas_script = st.text_area(
@@ -1927,8 +1931,8 @@ quit;"""
                 if st.session_state.get("loaded_project_file") != main_file.name:
                     try:
                         content = main_file.getvalue().decode("utf-8", errors="ignore")
-                        st.session_state.sas_input = content
-                        st.session_state.loaded_project_file = main_file.name
+                        st.session_state["pending_project_editor_content"] = content
+                        st.session_state["loaded_project_file"] = main_file.name
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to read file: {e}")
@@ -1948,8 +1952,8 @@ quit;"""
                     try:
                         main_file = files_by_name[selected_main_name]
                         content = main_file.getvalue().decode("utf-8", errors="ignore")
-                        st.session_state.sas_input = content
-                        st.session_state.loaded_project_file = selected_main_name
+                        st.session_state["pending_project_editor_content"] = content
+                        st.session_state["loaded_project_file"] = selected_main_name
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to read {selected_main_name}: {e}")
