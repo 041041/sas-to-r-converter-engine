@@ -56,7 +56,57 @@ def clear_all():
 def toggle_r_review():
     st.session_state.show_r_review = not st.session_state.get("show_r_review", False)
 
-# --- ENTERPRISE CUSTOM CSS (ADAPTS TO LIGHT & DARK THEMES) ---
+# --- ENTERPRISE CUSTOM CSS (ADAPTS TO LIGHT, DARK & SYSTEM THEMES) ---
+user_app_theme = st.session_state.get("sb_app_theme") or st.session_state.get("app_theme", "System")
+
+theme_override_css = ""
+if user_app_theme == "Light":
+    theme_override_css = """
+    :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
+        --bg-app: #F8FAFC !important;
+        --bg-surface: #FFFFFF !important;
+        --bg-subtle: #F1F5F9 !important;
+        --border-color: #E2E8F0 !important;
+        --border-dark: #CBD5E1 !important;
+        --text-main: #0F172A !important;
+        --text-subtitle: #475569 !important;
+        --text-muted: #64748B !important;
+        --primary-btn: #2563EB !important;
+        --primary-btn-hover: #1D4ED8 !important;
+        --secondary-btn-bg: #FFFFFF !important;
+        --secondary-btn-hover: #F1F5F9 !important;
+        --secondary-btn-border: #E2E8F0 !important;
+        --secondary-btn-text: #0F172A !important;
+        --sidebar-bg: #F8FAFC !important;
+        --sidebar-border: #E2E8F0 !important;
+        --nav-selected-bg: #DBEAFE !important;
+        --nav-selected-text: #1D4ED8 !important;
+    }
+    """
+elif user_app_theme == "Dark":
+    theme_override_css = """
+    :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
+        --bg-app: #0F172A !important;
+        --bg-surface: #111827 !important;
+        --bg-subtle: #1E293B !important;
+        --border-color: #334155 !important;
+        --border-dark: #475569 !important;
+        --text-main: #F8FAFC !important;
+        --text-subtitle: #CBD5E1 !important;
+        --text-muted: #94A3B8 !important;
+        --primary-btn: #2563EB !important;
+        --primary-btn-hover: #1D4ED8 !important;
+        --secondary-btn-bg: #1E293B !important;
+        --secondary-btn-hover: #334155 !important;
+        --secondary-btn-border: #334155 !important;
+        --secondary-btn-text: #F8FAFC !important;
+        --sidebar-bg: #0F172A !important;
+        --sidebar-border: #1E293B !important;
+        --nav-selected-bg: #1E3A5F !important;
+        --nav-selected-text: #93C5FD !important;
+    }
+    """
+
 st.markdown("""
     <style>
     :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
@@ -789,6 +839,9 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+if theme_override_css:
+    st.markdown(f"<style>{theme_override_css}</style>", unsafe_allow_html=True)
 
 # --- API CLIENT SETUP ---
 def get_secret(key):
@@ -1584,6 +1637,18 @@ with st.sidebar:
         )
         if sb_dialect != st.session_state.get("r_dialect"):
             st.session_state["r_dialect"] = sb_dialect
+            st.rerun()
+
+        app_theme_opts = ["System", "Light", "Dark"]
+        curr_app_theme = st.session_state.get("app_theme", "System")
+        sb_theme = st.selectbox(
+            "Theme",
+            app_theme_opts,
+            index=app_theme_opts.index(curr_app_theme) if curr_app_theme in app_theme_opts else 0,
+            key="sb_app_theme"
+        )
+        if sb_theme != st.session_state.get("app_theme"):
+            st.session_state["app_theme"] = sb_theme
             st.rerun()
 
     with st.expander("MORE", expanded=False):
