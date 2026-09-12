@@ -1,6 +1,2 @@
 [client]
 toolbarMode = "auto"
-
-[theme]
-base = "light"
-primaryColor = "#2563EB"
