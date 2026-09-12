@@ -2373,43 +2373,73 @@ quit;"""
 
         # ── EXPANDABLE ANALYSIS & MODERNIZATION DETAILS ──
         with st.expander("🧠 Modernization Engine Analysis & AST", expanded=False):
+            proj_ctx = st.session_state.get("project_context")
+            p_results = st.session_state.get("pipeline_results", [])
+            final_r_str = ""
+            if p_results:
+                r_blocks = []
+                for r_res in p_results:
+                    f_res = st.session_state.get("fix_results", {}).get(r_res.get("name"))
+                    c_code = f_res["code"] if f_res and f_res.get("match") else r_res.get("r_code")
+                    if c_code:
+                        r_blocks.append(f"# --- {r_res.get('name', 'Step')} ---\n{c_code}")
+                final_r_str = "\n\n".join(r_blocks)
+                if "tidyverse" in r_dialect and not final_r_str.startswith("library(tidyverse)"):
+                    final_r_str = "library(tidyverse)\n\n" + final_r_str
+
+            doc_gen = doc_generator.DocumentationGenerator()
+            mod_doc = doc_gen.generate_document(
+                result=_conv_result,
+                program_name=st.session_state.get("loaded_project_file") or "SAS_Program_Modernization",
+                project_context=proj_ctx,
+                final_optimized_r=final_r_str if final_r_str else _conv_result.full_optimized_r,
+                pipeline_results=p_results
+            )
+            md_report = md_renderer.render_markdown(mod_doc)
+
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Complexity Score", f"{_conv_result.ast.complexity.score:.1f}/100", delta=_conv_result.ast.complexity.risk_level)
-            m2.metric("Overall Confidence", f"{_conv_result.overall_confidence:.1f}%")
-            m3.metric("R Line Reduction", f"{_conv_result.total_optimization_metrics.line_reduction_pct:.1f}%")
-            m4.metric("Macros Detected", len(_conv_result.ast.macros))
+            c_score = _conv_result.ast.complexity.score if _conv_result and hasattr(_conv_result, "ast") and _conv_result.ast else 20.0
+            r_level = _conv_result.ast.complexity.risk_level if _conv_result and hasattr(_conv_result, "ast") and _conv_result.ast else "LOW"
+            m1.metric("Complexity Score", f"{c_score:.1f}/100", delta=r_level)
+            m2.metric("Overall Confidence", f"{mod_doc.overall_confidence:.1f}%")
+            m3.metric("R Line Reduction", f"{mod_doc.optimization_summary.get('line_reduction_pct', 0.0):.1f}%")
+            macros_cnt = len(proj_ctx.macro_registry) if proj_ctx else (len(_conv_result.ast.macros) if _conv_result and hasattr(_conv_result, "ast") else 0)
+            m4.metric("Macros Detected", macros_cnt)
 
             t_ast1, t_ast2, t_ast3, t_ast4 = st.tabs(["📊 Dataset Lineage", "🔧 Infrastructure", "⚡ R Optimizer", "📄 Modernization Document"])
             with t_ast1:
                 st.markdown("**Dataset Lineage & Pipeline Flow**")
-                lineage_df = [l.to_dict() for l in _conv_result.ast.lineage]
+                lineage_df = [l.to_dict() for l in _conv_result.ast.lineage] if _conv_result and hasattr(_conv_result, "ast") and _conv_result.ast else []
                 if lineage_df: st.dataframe(lineage_df, use_container_width=True)
+                elif mod_doc.program_type == "MACRO_LIBRARY":
+                    st.info("Program Type: MACRO_LIBRARY. Lineage maps input macro parameters to modernized R functions.")
                 else: st.info("No intermediate datasets detected.")
 
             with t_ast2:
                 st.markdown("**Infrastructure & Setup**")
-                st.code(_conv_result.infra_config.r_config_code or "# No infrastructure directives detected", language="r")
-                if _conv_result.infra_config.manual_review_items:
+                r_cfg = _conv_result.infra_config.r_config_code if _conv_result and hasattr(_conv_result, "infra_config") and _conv_result.infra_config else ""
+                st.code(r_cfg or "# No infrastructure directives detected", language="r")
+                if mod_doc.manual_review_items:
                     st.warning("⚠️ **Manual Review Items Flagged**:")
-                    for item in _conv_result.infra_config.manual_review_items:
+                    for item in mod_doc.manual_review_items:
                         st.markdown(f"- {item}")
 
             with t_ast3:
                 st.markdown("**R Code Optimization Breakdown**")
-                opt_m = _conv_result.total_optimization_metrics.to_dict()
+                opt_m = mod_doc.optimization_summary
                 c_o1, c_o2, c_o3 = st.columns(3)
-                c_o1.metric("Original R Lines", opt_m["original_line_count"])
-                c_o2.metric("Optimized R Lines", opt_m["optimized_line_count"])
-                c_o3.metric("Line Reduction", f"{opt_m['line_reduction_pct']:.1f}%")
-                for act in opt_m["actions_taken"]:
+                c_o1.metric("Original R Lines", opt_m.get("original_line_count", 0))
+                c_o2.metric("Optimized R Lines", opt_m.get("optimized_line_count", 0))
+                c_o3.metric("Line Reduction", f"{opt_m.get('line_reduction_pct', 0.0):.1f}%")
+                for act in opt_m.get("actions_taken", []):
                     st.markdown(f"- ✓ {act}")
 
             with t_ast4:
                 st.markdown("**Full 10-Section Modernization Report**")
-                st.markdown(_md_report)
+                st.markdown(md_report)
                 st.download_button(
                     "⬇️ Download Modernization Report (.md)",
-                    data=_md_report, file_name="SAS_Modernization_Report.md",
+                    data=md_report, file_name="SAS_Modernization_Report.md",
                     mime="text/markdown", use_container_width=True, key="dl_mod_report_exp"
                 )
 

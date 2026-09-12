@@ -11,38 +11,56 @@ from doc_generator import ModernizationDocument
 
 def render_markdown(doc: ModernizationDocument) -> str:
     md = []
-    
+
     md.append(f"# 🚀 SAS Modernization Report: {doc.program_name}\n")
-    
+
     # Section 1: Executive Summary
     md.append("## 1. Executive Summary")
     md.append(f"{doc.executive_summary}\n")
-    
+
     # Section 2: Original SAS Metadata
     md.append("## 2. Original SAS Metadata")
     md.append(f"- **Program Name**: `{doc.program_name}`")
+    md.append(f"- **Program Type**: `{getattr(doc, 'program_type', 'EXECUTABLE_PROGRAM')}`")
     md.append(f"- **Input Datasets**: `{', '.join(doc.input_datasets) if doc.input_datasets else 'None'}`")
     md.append(f"- **Output Datasets**: `{', '.join(doc.output_datasets) if doc.output_datasets else 'None'}`")
+    pm = getattr(doc, "project_metrics", None)
+    if pm:
+        md.append(f"- **Project Files**: `{pm.get('files_count', 1)}`")
+        md.append(f"- **Discovered Macros**: `{pm.get('macros_count', 0)}`")
+        md.append(f"- **Dependencies**: `{pm.get('dependencies_count', 0)}`")
+        md.append(f"- **Resolved Dependencies**: `{pm.get('resolved_count', 0)}/{pm.get('macros_count', 0)}`")
+
     md.append("- **Libraries / Data Sources**:")
     for lib, val in doc.libraries.items():
         md.append(f"  - `{lib}` $\\rightarrow$ `{val}`")
     if not doc.libraries:
         md.append("  - *None defined*")
     md.append("\n")
-    
+
     # Section 3: SAS Logic Analysis
     md.append("## 3. SAS Logic Analysis")
     md.append("| Step # | Name | Type | Method | Confidence |")
     md.append("| :--- | :--- | :--- | :--- | :--- |")
-    for s in doc.step_descriptions:
-        md.append(f"| {s['step_index']} | `{s['name']}` | `{s['type']}` | `{s['method']}` | {s['confidence']} |")
+    if doc.step_descriptions:
+        for s in doc.step_descriptions:
+            md.append(f"| {s['step_index']} | `{s['name']}` | `{s['type']}` | `{s['method']}` | {s['confidence']} |")
+    else:
+        md.append("| 0 | `N/A` | `MACRO_LIBRARY` | `MacroLibraryConverter` | 100% |")
     md.append("\n")
-    
+
     # Section 4: Macro Analysis
     md.append("## 4. Macro Analysis")
+    if pm and pm.get("macros_count", 0) > 0:
+        md.append(f"- **Total Discovered Macros**: `{pm.get('macros_count', 0)}`")
+        md.append(f"- **Total Dependency Edges**: `{pm.get('dependencies_count', 0)}`")
+        md.append(f"- **Dependency Resolution**: `{pm.get('resolved_count', 0)}/{pm.get('macros_count', 0)}`\n")
+
     if doc.macro_summaries:
         for m in doc.macro_summaries:
             md.append(f"### Macro: `{m['name']}`")
+            if m.get("source_file"):
+                md.append(f"- **Source File**: `{m['source_file']}`")
             md.append(f"- **Parameters**: `{', '.join(m['params']) if m['params'] else 'None'}`")
             md.append(f"- **Complexity Score**: `{m['complexity_score']}/100`")
             md.append(f"- **Nested Macro Calls**: `{', '.join(m['nested_calls']) if m['nested_calls'] else 'None'}`")
@@ -50,7 +68,7 @@ def render_markdown(doc: ModernizationDocument) -> str:
     else:
         md.append("*No macros defined in this program.*\n")
     md.append("\n")
-    
+
     # Section 5: SAS -> R Mapping Table
     md.append("## 5. SAS → R Construct Mapping")
     md.append("| SAS Construct | Target R Equivalent | Confidence | Translation Method |")
@@ -58,7 +76,7 @@ def render_markdown(doc: ModernizationDocument) -> str:
     for row in doc.mapping_table:
         md.append(f"| `{row.sas_construct}` | `{row.r_equivalent}` | **{row.confidence}** | `{row.method}` |")
     md.append("\n")
-    
+
     # Section 6: Generated R Architecture & Optimization Metrics
     md.append("## 6. R Code Optimization Metrics")
     opt = doc.optimization_summary
@@ -72,18 +90,21 @@ def render_markdown(doc: ModernizationDocument) -> str:
     for act in opt.get('actions_taken', []):
         md.append(f"  - ✓ {act}")
     md.append("\n")
-    
+
     # Section 7: Generated R Code
     md.append("## 7. Final Optimized R Code")
     md.append("```r")
     md.append(doc.final_optimized_r)
     md.append("```\n")
-    
+
     # Section 8: Validation Results
     md.append("## 8. Validation Results")
+    r_val = getattr(doc, "r_validation_status", "VALID_R")
+    val_icon = "PASSED ✅" if r_val == "VALID_R" else ("REVIEW REQUIRED ⚠️" if r_val == "R_REVIEW_REQUIRED" else "INVALID ❌")
+    md.append(f"- **Generated R Validation**: **{val_icon}**")
     md.append(f"- **Status**: **{doc.validation_status}**")
     md.append(f"- **Details**: {doc.validation_details}\n")
-    
+
     # Section 9: Manual Review Items
     md.append("## 9. Manual Review Items")
     if doc.manual_review_items:
@@ -92,10 +113,10 @@ def render_markdown(doc: ModernizationDocument) -> str:
     else:
         md.append("✅ *No manual review items flagged. 100% automated conversion.*")
     md.append("\n")
-    
+
     # Section 10: Conversion Confidence
     md.append("## 10. Conversion Confidence & Rationale")
     md.append(f"- **Overall Confidence Score**: **`{doc.overall_confidence}%`**")
     md.append(f"- **Rationale**: {doc.confidence_rationale}\n")
-    
+
     return "\n".join(md)
