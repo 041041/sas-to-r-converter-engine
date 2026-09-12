@@ -1983,14 +1983,18 @@ quit;"""
                         res_summary = ProjectValidator().validate(project_context)
 
                         c1, c2 = st.columns(2)
-                        c1.metric("Files", res_summary["files_count"])
-                        c2.metric("Discovered Macros", res_summary["macros_count"])
+                        c1.metric("Files", res_summary.get("files_count", 0))
+                        c2.metric("Discovered Macros", res_summary.get("macros_count", 0))
 
                         c3, c4 = st.columns(2)
-                        c3.metric("Dependencies", res_summary["dependencies_count"])
-                        c4.metric("Resolved", f"{res_summary['resolved_count']}/{res_summary['macros_count']}")
+                        c3.metric("Dependencies", res_summary.get("dependencies_count", 0))
+                        macros_cnt = res_summary.get("macros_count", 0)
+                        resolved_cnt = res_summary.get("resolved_count", 0)
+                        c4.metric("Resolved", f"{resolved_cnt}/{macros_cnt}")
 
-                        st.caption(f"Status: **{res_summary['status']}** | Program type: **{res_summary['program_type']}**")
+                        status_val = res_summary.get("status", "UNKNOWN")
+                        prog_type_val = res_summary.get("program_type", "EXECUTABLE_PROGRAM")
+                        st.caption(f"Status: **{status_val}** | Program type: **{prog_type_val}**")
 
                         if project_context.errors:
                             for err in project_context.errors:
@@ -1999,7 +2003,7 @@ quit;"""
                             for wrn in project_context.warnings:
                                 st.warning(f"💡 {wrn}")
 
-                        if res_summary["macros_count"] > 0 or res_summary["dependencies_count"] > 0:
+                        if res_summary.get("macros_count", 0) > 0 or res_summary.get("dependencies_count", 0) > 0:
                             st.markdown("**Dependency Graph:**")
                             tree_view = ProjectValidator().format_tree_view(project_context)
                             st.code(tree_view, language="text")
