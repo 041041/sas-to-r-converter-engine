@@ -139,6 +139,32 @@ st.markdown("""
         margin-bottom: 0.5rem !important;
     }
 
+    /* Header Quality Toggle Inline Alignment */
+    .header-quality-toggle {
+        display: flex !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+        height: 100% !important;
+        margin-top: -2px !important;
+    }
+    .header-quality-toggle div.stButton > button {
+        background: transparent !important;
+        border: none !important;
+        color: var(--success) !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+        cursor: pointer !important;
+    }
+    .header-quality-toggle div.stButton > button:hover {
+        background: transparent !important;
+        color: var(--success) !important;
+        opacity: 0.8 !important;
+    }
+
     /* Card Boxes & Integrated Expander Containers */
     .card-box {
         background: var(--bg-surface);
@@ -1806,15 +1832,15 @@ quit;"""
             if results:
                 is_q_open = st.session_state.get("show_conversion_quality", False)
                 q_toggle_label = "✅ Converted ▴" if is_q_open else "✅ Converted ▾"
+                st.markdown('<div class="header-quality-toggle">', unsafe_allow_html=True)
                 st.button(
                     q_toggle_label,
                     key="btn_converted_quality_toggle",
                     on_click=toggle_conversion_quality
                 )
+                st.markdown('</div>', unsafe_allow_html=True)
             elif pipeline_run_flag:
-                st.markdown('<div style="height: 42px; display: flex; align-items: center; justify-content: flex-end; color: var(--warning); font-weight: 600; font-size: 0.88rem;">Converting...</div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div style="height: 42px;"></div>', unsafe_allow_html=True)
+                st.markdown('<div style="display: flex; align-items: center; justify-content: flex-end; color: var(--warning); font-weight: 600; font-size: 0.88rem; height: 100%;">Converting...</div>', unsafe_allow_html=True)
 
         if results:
             all_r_code = []
@@ -1841,33 +1867,27 @@ quit;"""
 
             # ── CONVERSION QUALITY PANEL (Visible only when '✅ Converted ▾' is expanded) ──
             if st.session_state.get("show_conversion_quality", False):
-                st.markdown("""
-                <div style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; margin: 8px 0 16px 0;">
+                conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
+                manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
+
+                st.markdown(f"""
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 10px 14px; margin: 4px 0 12px 0; font-size: 0.88rem;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-bottom: 6px;">
+                        <div><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
+                        <div><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
+                        <div><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 6px;">
+                        <div><strong>Converted:</strong> {conv_items_str}</div>
+                        <div><strong>Manual Review:</strong> {manual_review_str}</div>
+                    </div>
+                </div>
                 """, unsafe_allow_html=True)
-                col_q1, col_q2 = st.columns([1, 2.5])
-                with col_q1:
-                    st.markdown("**Confidence**")
-                    st.markdown("**R Validation**")
-                    if q_summary.is_project:
-                        st.markdown("**Project**")
-                    st.markdown("**Converted**")
-                    st.markdown("**Manual Review**")
-                with col_q2:
-                    st.markdown(f"`{q_summary.confidence_percentage}%` — **{q_summary.confidence_band.value}**")
-                    st.markdown(f"**{q_summary.r_validation_label}**")
-                    if q_summary.is_project:
-                        st.markdown(f"**{q_summary.project_resolution_label}**")
-                    
-                    conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
-                    st.markdown(conv_items_str)
 
-                    if q_summary.review_items:
-                        rev_str = f"⚠ {len(q_summary.review_items)} item(s) require manual review"
-                        st.markdown(f"<span style='color: var(--warning); font-weight: 600;'>{rev_str}</span>", unsafe_allow_html=True)
-                    else:
-                        st.markdown("✅ No manual review items detected")
-                st.markdown('</div>', unsafe_allow_html=True)
+            # Generated R Code Box (Immediately follows header / quality panel)
+            st.code(full_r_display, language="r")
 
+            # Action Controls (BELOW generated R code box)
             c_review, c_dl = st.columns([1, 1])
             with c_review:
                 review_btn_label = "✕ Close Review" if st.session_state.get("show_r_review", False) else "🔍 Review R Code"
@@ -1880,8 +1900,6 @@ quit;"""
                     mime="text/plain",
                     use_container_width=True
                 )
-
-            st.code(full_r_display, language="r")
         else:
             empty_html = """
             <div class="r-output-empty-state">

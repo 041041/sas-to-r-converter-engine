@@ -2,7 +2,7 @@
 
 **Target Environment**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter-cleaned`  
 **Master Original Repository**: `/Users/sandeep/.gemini/antigravity/scratch/sas-to-r-converter` *(READ-ONLY & UNTOUCHED)*  
-**Test Timestamp**: 2026-08-31 18:44:01
+**Test Timestamp**: 2026-09-13 18:31:48
 
 ## 1. Executive Summary
 Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of SAS macro complexity**, ranging from simple `%LET` and keyword parameter macros (Level 1) to multi-nested, dynamic reference (`&&var&i`), macro-function, and PROC SQL clinical pipelines (Level 8).
@@ -66,12 +66,18 @@ Phase 1.5 evaluated the Enterprise SAS Modernization Engine across **8 levels of
 # 🚀 SAS Modernization Report: Level 1_Basic_Macro
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 1_Basic_Macro'. The program contains 1 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 85.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 1_Basic_Macro' (Program Type: Executable Program). The project contains 1 execution step(s) and 1 macro definition(s). Achieved overall conversion confidence of 85% (Moderate Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 1_Basic_Macro`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `DM`
 - **Output Datasets**: `DM_FILTERED`
+- **Project Files**: `1`
+- **Discovered Macros**: `1`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `1/1`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -83,10 +89,21 @@ Automated modernization analysis for 'Level 1_Basic_Macro'. The program contains
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `1`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `1/1`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `FILTER_DATA` | `Main Program` | `None` | **Resolved** |
+
+
 ### Macro: `FILTER_DATA`
+- **Source File**: `Main Program`
 - **Parameters**: `INPUT, OUTPUT, MIN_AGE`
 - **Complexity Score**: `16.0/100`
-- **Nested Macro Calls**: `None`
+- **Dependencies**: `None`
 - **Dynamic Naming**: `No`
 
 
@@ -105,6 +122,7 @@ Automated modernization analysis for 'Level 1_Basic_Macro'. The program contains
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -117,16 +135,17 @@ DM_FILTERED
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-✅ *No manual review items flagged. 100% automated conversion.*
+✅ *No manual review items flagged. Automated conversion completed with no unresolved dependency or structural R issues.*
 
 
 ## 10. Conversion Confidence & Rationale
 - **Overall Confidence Score**: **`85.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 0 infrastructure/connection item(s) for manual review.
+- **Rationale**: Most logic was converted, but some items should be reviewed.
 
 
 --------------------------------------------------------------------------------
@@ -135,12 +154,18 @@ DM_FILTERED
 # 🚀 SAS Modernization Report: Level 2_Macro_Control_Flow
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program contains 2 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 90.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 2_Macro_Control_Flow' (Program Type: Executable Program). The project contains 2 execution step(s) and 1 macro definition(s). Achieved overall conversion confidence of 90% (High Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 2_Macro_Control_Flow`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `RAW_DATA`
 - **Output Datasets**: `SUBSET_1`
+- **Project Files**: `1`
+- **Discovered Macros**: `1`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `1/1`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -153,10 +178,21 @@ Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program c
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `1`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `1/1`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `GENERATE_SUMMARY` | `Main Program` | `WHILE` | **1/1** |
+
+
 ### Macro: `GENERATE_SUMMARY`
+- **Source File**: `Main Program`
 - **Parameters**: `PREFIX, MAX_ITER`
 - **Complexity Score**: `47.0/100`
-- **Nested Macro Calls**: `WHILE`
+- **Dependencies**: `WHILE`
 - **Dynamic Naming**: `Yes ⚠️`
 
 
@@ -176,6 +212,7 @@ Automated modernization analysis for 'Level 2_Macro_Control_Flow'. The program c
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -190,17 +227,17 @@ SUBSET_1
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-- ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
+- ⚠️ Macro %WHILE called but not defined — left as-is.
 
 
 ## 10. Conversion Confidence & Rationale
 - **Overall Confidence Score**: **`90.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 2 infrastructure/connection item(s) for manual review.
+- **Rationale**: Most SAS logic was converted automatically with no unresolved structural issues.
 
 
 --------------------------------------------------------------------------------
@@ -209,12 +246,18 @@ SUBSET_1
 # 🚀 SAS Modernization Report: Level 3_Nested_Macros
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 3_Nested_Macros'. The program contains 2 execution step(s) and 2 macro definition(s). Achieved an overall conversion confidence of 90.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 3_Nested_Macros' (Program Type: Executable Program). The project contains 2 execution step(s) and 2 macro definition(s). Achieved overall conversion confidence of 90% (High Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 3_Nested_Macros`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `ADSL`
-- **Output Datasets**: `ADSL_CLEAN, ADSL_SORTED`
+- **Output Datasets**: `ADSL_SORTED, ADSL_CLEAN`
+- **Project Files**: `1`
+- **Discovered Macros**: `2`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `2/2`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -227,15 +270,28 @@ Automated modernization analysis for 'Level 3_Nested_Macros'. The program contai
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `2`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `2/2`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `PREPARE_DATA` | `Main Program` | `CLEAN_DATA` | **1/1** |
+| `CLEAN_DATA` | `Main Program` | `None` | **Resolved** |
+
+
 ### Macro: `PREPARE_DATA`
+- **Source File**: `Main Program`
 - **Parameters**: `INPUT`
 - **Complexity Score**: `22.0/100`
-- **Nested Macro Calls**: `CLEAN_DATA`
+- **Dependencies**: `CLEAN_DATA`
 - **Dynamic Naming**: `No`
 ### Macro: `CLEAN_DATA`
+- **Source File**: `Main Program`
 - **Parameters**: `DATA`
 - **Complexity Score**: `12.0/100`
-- **Nested Macro Calls**: `None`
+- **Dependencies**: `None`
 - **Dynamic Naming**: `No`
 
 
@@ -255,6 +311,7 @@ Automated modernization analysis for 'Level 3_Nested_Macros'. The program contai
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -271,16 +328,17 @@ ADSL_SORTED
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-✅ *No manual review items flagged. 100% automated conversion.*
+✅ *No manual review items flagged. Automated conversion completed with no unresolved dependency or structural R issues.*
 
 
 ## 10. Conversion Confidence & Rationale
 - **Overall Confidence Score**: **`90.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 0 infrastructure/connection item(s) for manual review.
+- **Rationale**: Most SAS logic was converted automatically with no unresolved structural issues.
 
 
 --------------------------------------------------------------------------------
@@ -289,12 +347,18 @@ ADSL_SORTED
 # 🚀 SAS Modernization Report: Level 4_Dynamic_Macro_References
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 4_Dynamic_Macro_References'. The program contains 2 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 95.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 4_Dynamic_Macro_References' (Program Type: Executable Program). The project contains 2 execution step(s) and 1 macro definition(s). Achieved overall conversion confidence of 95% (High Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 4_Dynamic_Macro_References`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `None`
 - **Output Datasets**: `AE_SORTED, DM_SORTED`
+- **Project Files**: `1`
+- **Discovered Macros**: `1`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `1/1`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -307,10 +371,21 @@ Automated modernization analysis for 'Level 4_Dynamic_Macro_References'. The pro
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `1`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `1/1`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `PROCESS_DYNAMIC_TABLES` | `Main Program` | `None` | **Resolved** |
+
+
 ### Macro: `PROCESS_DYNAMIC_TABLES`
+- **Source File**: `Main Program`
 - **Parameters**: `COUNT`
 - **Complexity Score**: `40.0/100`
-- **Nested Macro Calls**: `None`
+- **Dependencies**: `None`
 - **Dynamic Naming**: `No`
 
 
@@ -330,6 +405,7 @@ Automated modernization analysis for 'Level 4_Dynamic_Macro_References'. The pro
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -346,16 +422,17 @@ AE_SORTED
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-✅ *No manual review items flagged. 100% automated conversion.*
+✅ *No manual review items flagged. Automated conversion completed with no unresolved dependency or structural R issues.*
 
 
 ## 10. Conversion Confidence & Rationale
 - **Overall Confidence Score**: **`95.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 0 infrastructure/connection item(s) for manual review.
+- **Rationale**: Most SAS logic was converted automatically with no unresolved structural issues.
 
 
 --------------------------------------------------------------------------------
@@ -364,12 +441,18 @@ AE_SORTED
 # 🚀 SAS Modernization Report: Level 5_Macro_Functions
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 5_Macro_Functions'. The program contains 1 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 30.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 5_Macro_Functions' (Program Type: Executable Program). The project contains 1 execution step(s) and 1 macro definition(s). Achieved overall conversion confidence of 30% (Low Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 5_Macro_Functions`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `None`
 - **Output Datasets**: `STUDY_OUTPUT`
+- **Project Files**: `1`
+- **Discovered Macros**: `1`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `1/1`
 - **Libraries / Data Sources**:
   - *None defined*
 
@@ -381,10 +464,21 @@ Automated modernization analysis for 'Level 5_Macro_Functions'. The program cont
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `1`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `1/1`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `PARSE_STUDY_CODE` | `Main Program` | `UPCASE, TRIM, SCAN, SUBSTR` | **4/4** |
+
+
 ### Macro: `PARSE_STUDY_CODE`
+- **Source File**: `Main Program`
 - **Parameters**: `RAW_CODE`
 - **Complexity Score**: `52.0/100`
-- **Nested Macro Calls**: `UPCASE, TRIM, SCAN, SUBSTR`
+- **Dependencies**: `UPCASE, TRIM, SCAN, SUBSTR`
 - **Dynamic Naming**: `No`
 
 
@@ -403,6 +497,7 @@ Automated modernization analysis for 'Level 5_Macro_Functions'. The program cont
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -413,18 +508,17 @@ Automated modernization analysis for 'Level 5_Macro_Functions'. The program cont
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-- ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
-- ⚠️ Unresolved step requires manual translation: STUDY_OUTPUT
+- ⚠️ Macro %EVAL called but not defined — left as-is.
 
 
 ## 10. Conversion Confidence & Rationale
 - **Overall Confidence Score**: **`30.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 3 infrastructure/connection item(s) for manual review.
+- **Rationale**: Significant parts of the SAS program require manual conversion or review.
 
 
 --------------------------------------------------------------------------------
@@ -433,12 +527,18 @@ Automated modernization analysis for 'Level 5_Macro_Functions'. The program cont
 # 🚀 SAS Modernization Report: Level 6_Infrastructure_+_Macros
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The program contains 1 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 95.0% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 6_Infrastructure_+_Macros' (Program Type: Executable Program). The project contains 1 execution step(s) and 1 macro definition(s). Achieved overall conversion confidence of 95% (High Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 6_Infrastructure_+_Macros`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `DM`
 - **Output Datasets**: `ADSL`
+- **Project Files**: `1`
+- **Discovered Macros**: `1`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `1/1`
 - **Libraries / Data Sources**:
   - `RAW` $\rightarrow$ `lib_raw`
   - `ADAM` $\rightarrow$ `lib_adam`
@@ -452,10 +552,21 @@ Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The prog
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `1`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `1/1`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `BUILD_ADSL` | `Main Program` | `None` | **Resolved** |
+
+
 ### Macro: `BUILD_ADSL`
+- **Source File**: `Main Program`
 - **Parameters**: `INPUT, OUTPUT`
 - **Complexity Score**: `14.0/100`
-- **Nested Macro Calls**: `None`
+- **Dependencies**: `None`
 - **Dynamic Naming**: `No`
 
 
@@ -474,6 +585,7 @@ Automated modernization analysis for 'Level 6_Infrastructure_+_Macros'. The prog
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -495,6 +607,7 @@ ADSL
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
@@ -505,7 +618,7 @@ ADSL
 
 ## 10. Conversion Confidence & Rationale
 - **Overall Confidence Score**: **`95.0%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 2 infrastructure/connection item(s) for manual review.
+- **Rationale**: Most SAS logic was converted automatically with no unresolved structural issues.
 
 
 --------------------------------------------------------------------------------
@@ -514,12 +627,18 @@ ADSL
 # 🚀 SAS Modernization Report: Level 7_Complex_Clinical_Macro
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The program contains 4 execution step(s) and 1 macro definition(s). Achieved an overall conversion confidence of 92.5% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 7_Complex_Clinical_Macro' (Program Type: Executable Program). The project contains 4 execution step(s) and 1 macro definition(s). Achieved overall conversion confidence of 92% (High Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 7_Complex_Clinical_Macro`
+- **Program Type**: `Executable Program`
 - **Input Datasets**: `DM`
-- **Output Datasets**: `ADAE, ADSL_POP, AE_JOINED`
+- **Output Datasets**: `AE_JOINED, ADAE, ADSL_POP`
+- **Project Files**: `1`
+- **Discovered Macros**: `1`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `1/1`
 - **Libraries / Data Sources**:
   - `SDTM` $\rightarrow$ `lib_sdtm`
   - `ADAM` $\rightarrow$ `lib_adam`
@@ -535,10 +654,21 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `1`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `1/1`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `BUILD_CLINICAL_ADAE` | `Main Program` | `None` | **Resolved** |
+
+
 ### Macro: `BUILD_CLINICAL_ADAE`
+- **Source File**: `Main Program`
 - **Parameters**: `SDTM_LIB, ADAM_LIB, POP_FLAG`
 - **Complexity Score**: `16.0/100`
-- **Nested Macro Calls**: `None`
+- **Dependencies**: `None`
 - **Dynamic Naming**: `No`
 
 
@@ -560,6 +690,7 @@ Automated modernization analysis for 'Level 7_Complex_Clinical_Macro'. The progr
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -591,16 +722,17 @@ df
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
-✅ *No manual review items flagged. 100% automated conversion.*
+✅ *No manual review items flagged. Automated conversion completed with no unresolved dependency or structural R issues.*
 
 
 ## 10. Conversion Confidence & Rationale
-- **Overall Confidence Score**: **`92.5%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 0 infrastructure/connection item(s) for manual review.
+- **Overall Confidence Score**: **`92.0%`**
+- **Rationale**: Most SAS logic was converted automatically with no unresolved structural issues.
 
 
 --------------------------------------------------------------------------------
@@ -609,12 +741,18 @@ df
 # 🚀 SAS Modernization Report: Level 8_Extreme_Macro
 
 ## 1. Executive Summary
-Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contains 4 execution step(s) and 2 macro definition(s). Achieved an overall conversion confidence of 78.8% with a 0.0% reduction in R code line count.
+Automated modernization analysis for 'Level 8_Extreme_Macro' (Program Type: Executable Program). The project contains 4 execution step(s) and 2 macro definition(s). Achieved overall conversion confidence of 78% (Moderate Confidence) with 0.0% R code line reduction.
 
 ## 2. Original SAS Metadata
 - **Program Name**: `Level 8_Extreme_Macro`
-- **Input Datasets**: `AE_CLEAN, DM_CLEAN`
+- **Program Type**: `Executable Program`
+- **Input Datasets**: `DM_CLEAN, AE_CLEAN`
 - **Output Datasets**: `, EXTREME_SUMMARY`
+- **Project Files**: `1`
+- **Discovered Macros**: `2`
+- **Macro Dependencies**: `0`
+- **Include Dependencies**: `0`
+- **Resolved Dependencies**: `2/2`
 - **Libraries / Data Sources**:
   - `RAW` $\rightarrow$ `lib_raw`
   - `ADAM` $\rightarrow$ `lib_adam`
@@ -630,15 +768,28 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 
 
 ## 4. Macro Analysis
+- **Total Discovered Macros**: `2`
+- **Total Dependency Edges**: `0`
+- **Dependency Resolution**: `2/2`
+
+### Project Macro Dependency Matrix
+| Macro | Source File | Dependencies | Resolution |
+| :--- | :--- | :--- | :--- |
+| `EXTREME_PIPELINE` | `Main Program` | `UPCASE, TRIM, SCAN, WHILE, PROCESS_SINGLE_DS` | **5/5** |
+| `PROCESS_SINGLE_DS` | `Main Program` | `None` | **Resolved** |
+
+
 ### Macro: `EXTREME_PIPELINE`
+- **Source File**: `Main Program`
 - **Parameters**: `STUDY_NAME, NUM_DATASETS`
 - **Complexity Score**: `97.0/100`
-- **Nested Macro Calls**: `UPCASE, TRIM, SCAN, WHILE, PROCESS_SINGLE_DS`
+- **Dependencies**: `UPCASE, TRIM, SCAN, WHILE, PROCESS_SINGLE_DS`
 - **Dynamic Naming**: `No`
 ### Macro: `PROCESS_SINGLE_DS`
+- **Source File**: `Main Program`
 - **Parameters**: `DS_NAME, IDX`
 - **Complexity Score**: `14.0/100`
-- **Nested Macro Calls**: `None`
+- **Dependencies**: `None`
 - **Dynamic Naming**: `No`
 
 
@@ -660,6 +811,7 @@ Automated modernization analysis for 'Level 8_Extreme_Macro'. The program contai
 - **Pipeline Operations Merged**: `0`
 - **Optimization Actions Log**:
   - ✓ Verified idiomatic structure
+  - ✓ ✓ Verified idiomatic structure; no reduction required
 
 
 ## 7. Final Optimized R Code
@@ -686,27 +838,23 @@ EXTREME_SUMMARY
 ```
 
 ## 8. Validation Results
+- **Generated R Validation**: **PASSED ✅**
 - **Status**: **PENDING EXECUTION ⚪**
 - **Details**: R code generated and optimized. Upload expected CSV/Excel to run full numerical validation.
 
 ## 9. Manual Review Items
 - ⚠️ External %INCLUDE directive: setup
-- ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %WHILE called but not defined — left as-is.
-- ⚠️ ⚠️ Macro %EVAL called but not defined — left as-is.
-- ⚠️ ⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1 — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1_clean — left unexpanded.
-- ⚠️ ⚠️ Unresolved macro variable &ds1_proc — left unexpanded.
-- ⚠️ Unresolved step requires manual translation: 
+- ⚠️ Macro %WHILE called but not defined — left as-is.
+- ⚠️ Macro %EVAL called but not defined — left as-is.
+- ⚠️ Indirect macro variable reference (&&) is unsupported — left unexpanded.
+- ⚠️ Unresolved macro variable &ds1 — left unexpanded.
+- ⚠️ Unresolved macro variable &ds1_proc — left unexpanded.
+- ⚠️ Unresolved macro variable &ds1_clean — left unexpanded.
 
 
 ## 10. Conversion Confidence & Rationale
-- **Overall Confidence Score**: **`78.8%`**
-- **Rationale**: High confidence for standard DATA steps, PROC SORT, PROC FREQ, and %LET statements. Flagged 12 infrastructure/connection item(s) for manual review.
+- **Overall Confidence Score**: **`78.0%`**
+- **Rationale**: Most logic was converted, but some items should be reviewed.
 
 
 --------------------------------------------------------------------------------
