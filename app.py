@@ -140,12 +140,23 @@ st.markdown("""
     }
 
     /* Header Quality Toggle Inline Alignment */
+    div[data-testid="column"]:has(.header-quality-toggle) {
+        display: flex !important;
+        justify-content: flex-end !important;
+        padding-right: 0 !important;
+    }
     .header-quality-toggle {
         display: flex !important;
         justify-content: flex-end !important;
         align-items: center !important;
+        width: 100% !important;
         height: 100% !important;
         margin-top: -2px !important;
+    }
+    .header-quality-toggle div.stButton {
+        display: flex !important;
+        justify-content: flex-end !important;
+        width: auto !important;
     }
     .header-quality-toggle div.stButton > button {
         background: transparent !important;
@@ -158,11 +169,36 @@ st.markdown("""
         margin: 0 !important;
         min-height: 0 !important;
         cursor: pointer !important;
+        float: right !important;
     }
     .header-quality-toggle div.stButton > button:hover {
         background: transparent !important;
         color: var(--success) !important;
         opacity: 0.8 !important;
+    }
+
+    /* Quality Panel Overlay (Zero-height flow wrapper) */
+    .quality-panel-overlay-wrapper {
+        position: relative !important;
+        width: 100% !important;
+        height: 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        z-index: 1000 !important;
+    }
+    .quality-panel-overlay {
+        position: absolute !important;
+        top: 2px !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+        padding: 10px 14px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+        z-index: 1000 !important;
+        font-size: 0.88rem !important;
     }
 
     /* Card Boxes & Integrated Expander Containers */
@@ -1871,15 +1907,17 @@ quit;"""
                 manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
 
                 st.markdown(f"""
-                <div style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 10px 14px; margin: 4px 0 12px 0; font-size: 0.88rem;">
-                    <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-bottom: 6px;">
-                        <div><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
-                        <div><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
-                        <div><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
-                    </div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 6px;">
-                        <div><strong>Converted:</strong> {conv_items_str}</div>
-                        <div><strong>Manual Review:</strong> {manual_review_str}</div>
+                <div class="quality-panel-overlay-wrapper">
+                    <div class="quality-panel-overlay">
+                        <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-bottom: 6px;">
+                            <div><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
+                            <div><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
+                            <div><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 6px;">
+                            <div><strong>Converted:</strong> {conv_items_str}</div>
+                            <div><strong>Manual Review:</strong> {manual_review_str}</div>
+                        </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
