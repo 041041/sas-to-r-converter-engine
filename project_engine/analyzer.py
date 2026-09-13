@@ -7,12 +7,14 @@ Project Analyzer orchestrator for building ProjectContext from uploaded files.
 from __future__ import annotations
 from typing import Sequence
 from project_engine.models import (
+    DependencyType,
     ProjectContext,
     ResolutionStatus
 )
 from project_engine.file_registry import ProjectFileRegistry
 from project_engine.macro_registry import MacroRegistry
 from project_engine.dependency_parser import DependencyParser
+from project_engine.include_parser import IncludeParser
 from project_engine.dependency_graph import DependencyGraphBuilder
 from project_engine.resolver import DependencyResolver
 
@@ -23,11 +25,16 @@ class ProjectAnalyzer:
     def __init__(
         self,
         parser: DependencyParser | None = None,
+        include_parser: IncludeParser | None = None,
         graph_builder: DependencyGraphBuilder | None = None,
         resolver: DependencyResolver | None = None
     ) -> None:
         self.parser = parser or DependencyParser()
-        self.graph_builder = graph_builder or DependencyGraphBuilder(parser=self.parser)
+        self.include_parser = include_parser or IncludeParser()
+        self.graph_builder = graph_builder or DependencyGraphBuilder(
+            parser=self.parser,
+            include_parser=self.include_parser
+        )
         self.resolver = resolver or DependencyResolver()
 
     def analyze_project(
@@ -65,18 +72,23 @@ class ProjectAnalyzer:
         resolution_result = self.resolver.resolve(graph, macro_reg, file_reg)
 
         # 5. Build Ordered Supporting Content
-        # Group supporting files by topological dependency order of macros contained within them
+        # Group supporting files by topological dependency order (both included files and files containing macros)
         ordered_supporting_files = []
         seen_files = set()
 
-        # Add files containing macros in topological order
-        for mac_name in resolution_result.resolution_order:
-            mdef = macro_reg.get_macro(mac_name)
-            if mdef:
-                pf = file_reg.get_file(mdef.source_file)
-                if pf and not pf.is_main and pf.normalized_path not in seen_files:
+        for item in resolution_result.resolution_order:
+            pf = file_reg.get_file(item)
+            if pf:
+                if not pf.is_main and pf.normalized_path not in seen_files:
                     seen_files.add(pf.normalized_path)
                     ordered_supporting_files.append(pf)
+            else:
+                mdef = macro_reg.get_macro(item)
+                if mdef:
+                    mpf = file_reg.get_file(mdef.source_file)
+                    if mpf and not mpf.is_main and mpf.normalized_path not in seen_files:
+                        seen_files.add(mpf.normalized_path)
+                        ordered_supporting_files.append(mpf)
 
         # Add any remaining non-main files not yet included
         for pf in file_reg.get_supporting_files():
@@ -85,6 +97,9 @@ class ProjectAnalyzer:
                 ordered_supporting_files.append(pf)
 
         ordered_supporting_content = [pf.source_content for pf in ordered_supporting_files]
+
+        macro_deps_count = len([e for e in graph.edges if e.dependency_type == DependencyType.MACRO_CALL])
+        include_deps_count = len([e for e in graph.edges if e.dependency_type == DependencyType.INCLUDE])
 
         # Assemble ProjectContext
         context = ProjectContext(
@@ -102,6 +117,8 @@ class ProjectAnalyzer:
                 "total_files": len(file_reg),
                 "total_macros": len(macro_reg),
                 "total_dependencies": len(graph.edges),
+                "macro_dependencies_count": macro_deps_count,
+                "include_dependencies_count": include_deps_count,
                 "status": resolution_result.status.value if isinstance(resolution_result.status, ResolutionStatus) else str(resolution_result.status)
             }
         )

@@ -28,8 +28,9 @@ def render_markdown(doc: ModernizationDocument) -> str:
     if pm:
         md.append(f"- **Project Files**: `{pm.get('files_count', 1)}`")
         md.append(f"- **Discovered Macros**: `{pm.get('macros_count', 0)}`")
-        md.append(f"- **Dependencies**: `{pm.get('dependencies_count', 0)}`")
-        md.append(f"- **Resolved Dependencies**: `{pm.get('resolved_count', 0)}/{pm.get('macros_count', 0)}`")
+        md.append(f"- **Macro Dependencies**: `{pm.get('macro_dependencies_count', 0)}`")
+        md.append(f"- **Include Dependencies**: `{pm.get('include_dependencies_count', 0)}`")
+        md.append(f"- **Resolved Dependencies**: `{pm.get('resolved_count', 0)}/{pm.get('resolved_count', 0)}`")
 
     md.append("- **Libraries / Data Sources**:")
     for lib, val in doc.libraries.items():

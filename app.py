@@ -1982,15 +1982,15 @@ quit;"""
                     with st.expander("📊 Project Analysis & Dependency Resolution", expanded=False):
                         res_summary = ProjectValidator().validate(project_context)
 
-                        c1, c2 = st.columns(2)
+                        c1, c2, c3 = st.columns(3)
                         c1.metric("Files", res_summary.get("files_count", 0))
-                        c2.metric("Discovered Macros", res_summary.get("macros_count", 0))
+                        c2.metric("Macros", res_summary.get("macros_count", 0))
+                        c3.metric("Macro Dependencies", res_summary.get("macro_dependencies_count", 0))
 
-                        c3, c4 = st.columns(2)
-                        c3.metric("Dependencies", res_summary.get("dependencies_count", 0))
-                        macros_cnt = res_summary.get("macros_count", 0)
+                        c4, c5 = st.columns(2)
+                        c4.metric("Includes", res_summary.get("include_dependencies_count", 0))
                         resolved_cnt = res_summary.get("resolved_count", 0)
-                        c4.metric("Resolved", f"{resolved_cnt}/{macros_cnt}")
+                        c5.metric("Resolved", f"{resolved_cnt}/{len(project_context.dependency_order)}" if project_context.dependency_order else f"{resolved_cnt}/{res_summary.get('macros_count', 0)}")
 
                         status_val = res_summary.get("status", "UNKNOWN")
                         prog_type_val = res_summary.get("program_type", "EXECUTABLE_PROGRAM")

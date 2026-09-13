@@ -51,3 +51,27 @@ class ProgramClassifier:
             if re.search(r"[\w;]", clean_code):
                 return ProgramType.MACRO_LIBRARY if has_macro_defs else ProgramType.EXECUTABLE_PROGRAM
             return ProgramType.INVALID_SOURCE
+
+    def classify_context(self, context: any) -> ProgramType:
+        """Classifies the overall project program type using ProjectContext."""
+        has_macro_defs = len(getattr(context, "macro_registry", {})) > 0
+        all_files = getattr(context, "project_files", {})
+        if all_files:
+            all_content = "\n".join([pf.source_content if hasattr(pf, "source_content") else pf.get("source_content", "") for pf in all_files.values()])
+        else:
+            all_content = getattr(context, "main_program_content", "") or ""
+
+        clean_code = DependencyParser.strip_comments(all_content)
+        outer_code = DependencyParser.strip_macro_definitions(clean_code)
+        has_exec_steps = bool(self.EXEC_STEP_PATTERN.search(outer_code))
+
+        if has_macro_defs and has_exec_steps:
+            return ProgramType.MIXED_PROGRAM
+        elif has_macro_defs and not has_exec_steps:
+            return ProgramType.MACRO_LIBRARY
+        elif not has_macro_defs and has_exec_steps:
+            return ProgramType.EXECUTABLE_PROGRAM
+        else:
+            if has_macro_defs:
+                return ProgramType.MACRO_LIBRARY
+            return ProgramType.EXECUTABLE_PROGRAM

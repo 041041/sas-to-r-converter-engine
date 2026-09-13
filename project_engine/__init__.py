@@ -9,7 +9,9 @@ from project_engine.models import (
     ProjectFile,
     MacroDefinition,
     MacroReference,
+    IncludeReference,
     DependencyEdge,
+    DependencyType,
     DependencyGraph,
     ResolutionResult,
     ResolutionStatus
@@ -17,6 +19,7 @@ from project_engine.models import (
 from project_engine.file_registry import ProjectFileRegistry
 from project_engine.macro_registry import MacroRegistry
 from project_engine.dependency_parser import DependencyParser
+from project_engine.include_parser import IncludeParser
 from project_engine.dependency_graph import DependencyGraphBuilder
 from project_engine.resolver import DependencyResolver
 from project_engine.analyzer import ProjectAnalyzer
@@ -28,13 +31,16 @@ __all__ = [
     "ProjectFile",
     "MacroDefinition",
     "MacroReference",
+    "IncludeReference",
     "DependencyEdge",
+    "DependencyType",
     "DependencyGraph",
     "ResolutionResult",
     "ResolutionStatus",
     "ProjectFileRegistry",
     "MacroRegistry",
     "DependencyParser",
+    "IncludeParser",
     "DependencyGraphBuilder",
     "DependencyResolver",
     "ProjectAnalyzer",

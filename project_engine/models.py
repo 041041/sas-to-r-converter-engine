@@ -82,15 +82,45 @@ class MacroReference:
         }
 
 
+class DependencyType(str, Enum):
+    MACRO_CALL = "MACRO_CALL"
+    INCLUDE = "INCLUDE"
+    FILE_DEPENDENCY = "FILE_DEPENDENCY"
+
+
+@dataclass
+class IncludeReference:
+    caller_file: str
+    referenced_path: str
+    normalized_filename: str
+    line_number: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "caller_file": self.caller_file,
+            "referenced_path": self.referenced_path,
+            "normalized_filename": self.normalized_filename,
+            "line_number": self.line_number
+        }
+
+
 @dataclass
 class DependencyEdge:
     caller: str
     dependency: str
+    dependency_type: DependencyType = DependencyType.MACRO_CALL
+    source_file: str | None = None
+    line_number: int = 0
+    status: str = "RESOLVED"
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "caller": self.caller,
-            "dependency": self.dependency
+            "dependency": self.dependency,
+            "dependency_type": self.dependency_type.value if isinstance(self.dependency_type, DependencyType) else str(self.dependency_type),
+            "source_file": self.source_file,
+            "line_number": self.line_number,
+            "status": self.status
         }
 
 
@@ -108,14 +138,35 @@ class DependencyGraph:
         if node not in self.reverse_adjacency:
             self.reverse_adjacency[node] = []
 
-    def add_edge(self, caller: str, dependency: str) -> None:
+    def add_edge(
+        self,
+        caller: str,
+        dependency: str,
+        dependency_type: DependencyType = DependencyType.MACRO_CALL,
+        source_file: str | None = None,
+        line_number: int = 0,
+        status: str = "RESOLVED"
+    ) -> None:
         self.add_node(caller)
         self.add_node(dependency)
         if dependency not in self.adjacency[caller]:
             self.adjacency[caller].append(dependency)
-            self.edges.append(DependencyEdge(caller=caller, dependency=dependency))
         if caller not in self.reverse_adjacency[dependency]:
             self.reverse_adjacency[dependency].append(caller)
+
+        # Ensure no duplicate edge with same caller, dependency, and dependency_type
+        for existing in self.edges:
+            if existing.caller == caller and existing.dependency == dependency and existing.dependency_type == dependency_type:
+                return
+
+        self.edges.append(DependencyEdge(
+            caller=caller,
+            dependency=dependency,
+            dependency_type=dependency_type,
+            source_file=source_file,
+            line_number=line_number,
+            status=status
+        ))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -130,6 +181,7 @@ class ResolutionResult:
     status: ResolutionStatus = ResolutionStatus.RESOLVED
     resolution_order: list[str] = field(default_factory=list)
     missing_dependencies: list[MacroReference] = field(default_factory=list)
+    missing_includes: list[IncludeReference] = field(default_factory=list)
     duplicate_definitions: dict[str, list[str]] = field(default_factory=dict)
     circular_paths: list[list[str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -141,6 +193,7 @@ class ResolutionResult:
             "status": self.status.value if isinstance(self.status, ResolutionStatus) else str(self.status),
             "resolution_order": self.resolution_order,
             "missing_dependencies": [m.to_dict() for m in self.missing_dependencies],
+            "missing_includes": [inc.to_dict() for inc in self.missing_includes],
             "duplicate_definitions": self.duplicate_definitions,
             "circular_paths": self.circular_paths,
             "warnings": self.warnings,

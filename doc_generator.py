@@ -184,10 +184,15 @@ class DocumentationGenerator:
             dep_edges = len(dep_graph.edges)
             res_count = len(project_context.resolution_result.resolution_order)
 
+            macro_deps_cnt = len([e for e in dep_graph.edges if str(getattr(e, 'dependency_type', '')).upper().endswith('MACRO_CALL')])
+            inc_deps_cnt = len([e for e in dep_graph.edges if str(getattr(e, 'dependency_type', '')).upper().endswith('INCLUDE')])
+
             project_metrics = {
                 "files_count": len(project_context.project_files),
                 "macros_count": macros_count,
                 "dependencies_count": dep_edges,
+                "macro_dependencies_count": macro_deps_cnt,
+                "include_dependencies_count": inc_deps_cnt,
                 "resolved_count": res_count
             }
 
