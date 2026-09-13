@@ -1,7 +1,7 @@
 """
 test_suite/test_project_engine_report.py
 ───────────────────────────────────────────
-Tests for Phase 9.12 Project Engine & Modernization Report Alignment.
+Tests for Phase 9.12 and Phase 9.14 Project Engine & Modernization Report Alignment.
 """
 
 import pytest
@@ -231,3 +231,151 @@ def test_10_dependency_metrics_in_rendered_markdown():
     assert "Total Discovered Macros**: `2`" in md
     assert "Total Dependency Edges**: `1`" in md
     assert "Dependency Resolution**: `2/2`" in md
+
+
+# --- PHASE 9.14 ENHANCEMENT TESTS ---
+
+def test_11_big_macro_dependency_display():
+    """Verify BIG_MACRO reports dependencies MACRO_A, MACRO_B explicitly."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %MACRO_B(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;"),
+        ("MACRO_B.sas", "%macro MACRO_B(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="big <- fn")
+    big_sum = next(m for m in doc.macro_summaries if m["name"] == "BIG_MACRO")
+    assert "MACRO_A" in big_sum["dependencies"]
+    assert "MACRO_B" in big_sum["dependencies"]
+
+
+def test_12_macro_a_no_dependencies():
+    """Verify MACRO_A reports Dependencies: None / empty list."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="f <- fn")
+    ma_sum = next(m for m in doc.macro_summaries if m["name"] == "MACRO_A")
+    assert len(ma_sum["dependencies"]) == 0
+
+
+def test_13_macro_b_no_dependencies():
+    """Verify MACRO_B reports Dependencies: None / empty list."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_B(); %mend;"),
+        ("MACRO_B.sas", "%macro MACRO_B(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="f <- fn")
+    mb_sum = next(m for m in doc.macro_summaries if m["name"] == "MACRO_B")
+    assert len(mb_sum["dependencies"]) == 0
+
+
+def test_14_two_dependency_edges():
+    """Verify exactly 2 dependency edges exist in 3-file project graph."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %MACRO_B(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;"),
+        ("MACRO_B.sas", "%macro MACRO_B(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    assert len(ctx.dependency_graph.edges) == 2
+
+
+def test_15_three_of_three_resolution():
+    """Verify 3/3 resolution metric in project metrics."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %MACRO_B(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;"),
+        ("MACRO_B.sas", "%macro MACRO_B(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="f <- fn")
+    assert doc.project_metrics["resolved_count"] == 3
+    assert doc.project_metrics["macros_count"] == 3
+
+
+def test_16_project_dependency_tree_consumption():
+    """Verify DocumentationGenerator consumes project_context.dependency_graph directly."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="f <- fn")
+    assert any(row["Macro"] == "BIG_MACRO" and "MACRO_A" in row["Dependencies"] for row in doc.macro_dependency_table)
+
+
+def test_17_dataset_lineage_with_known_dataset():
+    """Verify dataset lineage table captures dataset names when step lineage is provided."""
+    doc = DocumentationGenerator().generate_document(
+        final_optimized_r="adsl <- dm",
+        pipeline_results=[{"name": "ADSL", "step": "data adsl; set dm; run;", "r_code": "adsl <- dm"}]
+    )
+    assert len(doc.dataset_lineage_table) == 1
+    assert doc.dataset_lineage_table[0]["Dataset"] == "ADSL"
+
+
+def test_18_unknown_macro_input_handling():
+    """Verify unknown macro dataset input defaults to Unknown / Macro Input."""
+    doc = DocumentationGenerator().generate_document(
+        program_type=ProgramType.MACRO_LIBRARY,
+        final_optimized_r="m <- function() {}",
+        program_name="lib.sas"
+    )
+    assert any(row["Source"] == "Unknown / Macro Input" for row in doc.dataset_lineage_table)
+
+
+def test_19_no_invented_source_datasets():
+    """Verify macro library lineage does not invent non-existent physical SAS dataset names."""
+    doc = DocumentationGenerator().generate_document(
+        program_type=ProgramType.MACRO_LIBRARY,
+        final_optimized_r="m <- function() {}",
+        program_name="lib.sas"
+    )
+    assert doc.input_datasets == ["Unknown / Macro Input"]
+    for row in doc.dataset_lineage_table:
+        assert row["Source"] == "Unknown / Macro Input"
+
+
+def test_20_single_file_backward_compatibility():
+    """Verify single file SAS code without project context generates clean report without project errors."""
+    sas_code = "data work.test; set work.raw; run;"
+    doc = DocumentationGenerator().generate_document(
+        final_optimized_r="test <- raw",
+        program_name="single.sas"
+    )
+    assert doc.program_type == "Executable Program"
+    md = md_renderer.render_markdown(doc)
+    assert "Single Program" in md or "Original SAS Metadata" in md
+
+
+def test_21_modernization_report_dependency_table():
+    """Verify Section 4 renders Macro Dependency Matrix table with expected headers."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="f <- fn")
+    md = md_renderer.render_markdown(doc)
+    assert "### Project Macro Dependency Matrix" in md
+    assert "| Macro | Source File | Dependencies | Resolution |" in md
+    assert "| `BIG_MACRO` |" in md
+    assert "| `MACRO_A` |" in md
+
+
+def test_22_consistent_dependency_metrics():
+    """Verify dependency metrics match across ProjectContext and Modernization Document."""
+    file_tuples = [
+        ("BIG_MACRO.sas", "%macro BIG_MACRO(); %MACRO_A(); %MACRO_B(); %mend;"),
+        ("MACRO_A.sas", "%macro MACRO_A(); %mend;"),
+        ("MACRO_B.sas", "%macro MACRO_B(); %mend;")
+    ]
+    ctx = ProjectAnalyzer().analyze_project(file_tuples, main_filename="BIG_MACRO.sas")
+    doc = DocumentationGenerator().generate_document(project_context=ctx, final_optimized_r="f <- fn")
+    assert doc.project_metrics["macros_count"] == len(ctx.macro_registry) == 3
+    assert doc.project_metrics["dependencies_count"] == len(ctx.dependency_graph.edges) == 2
+    assert doc.project_metrics["resolved_count"] == len(ctx.resolution_result.resolution_order) == 3

@@ -2409,11 +2409,16 @@ quit;"""
             t_ast1, t_ast2, t_ast3, t_ast4 = st.tabs(["📊 Dataset Lineage", "🔧 Infrastructure", "⚡ R Optimizer", "📄 Modernization Document"])
             with t_ast1:
                 st.markdown("**Dataset Lineage & Pipeline Flow**")
-                lineage_df = [l.to_dict() for l in _conv_result.ast.lineage] if _conv_result and hasattr(_conv_result, "ast") and _conv_result.ast else []
-                if lineage_df: st.dataframe(lineage_df, use_container_width=True)
-                elif mod_doc.program_type == "MACRO_LIBRARY":
-                    st.info("Program Type: MACRO_LIBRARY. Lineage maps input macro parameters to modernized R functions.")
-                else: st.info("No intermediate datasets detected.")
+                ds_table = getattr(mod_doc, "dataset_lineage_table", [])
+                if ds_table:
+                    import pandas as pd
+                    st.dataframe(pd.DataFrame(ds_table), use_container_width=True)
+                else:
+                    lineage_df = [l.to_dict() for l in _conv_result.ast.lineage] if _conv_result and hasattr(_conv_result, "ast") and _conv_result.ast else []
+                    if lineage_df: st.dataframe(lineage_df, use_container_width=True)
+                    elif "Macro Library" in mod_doc.program_type or mod_doc.program_type == "MACRO_LIBRARY":
+                        st.info("Program Type: MACRO_LIBRARY. Lineage maps input macro parameters to modernized R functions.")
+                    else: st.info("No intermediate datasets detected.")
 
             with t_ast2:
                 st.markdown("**Infrastructure & Setup**")

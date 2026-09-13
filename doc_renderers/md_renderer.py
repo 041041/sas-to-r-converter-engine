@@ -56,6 +56,14 @@ def render_markdown(doc: ModernizationDocument) -> str:
         md.append(f"- **Total Dependency Edges**: `{pm.get('dependencies_count', 0)}`")
         md.append(f"- **Dependency Resolution**: `{pm.get('resolved_count', 0)}/{pm.get('macros_count', 0)}`\n")
 
+    if getattr(doc, "macro_dependency_table", None):
+        md.append("### Project Macro Dependency Matrix")
+        md.append("| Macro | Source File | Dependencies | Resolution |")
+        md.append("| :--- | :--- | :--- | :--- |")
+        for row in doc.macro_dependency_table:
+            md.append(f"| `{row['Macro']}` | `{row['Source File']}` | `{row['Dependencies']}` | **{row['Resolution']}** |")
+        md.append("\n")
+
     if doc.macro_summaries:
         for m in doc.macro_summaries:
             md.append(f"### Macro: `{m['name']}`")
@@ -63,8 +71,9 @@ def render_markdown(doc: ModernizationDocument) -> str:
                 md.append(f"- **Source File**: `{m['source_file']}`")
             md.append(f"- **Parameters**: `{', '.join(m['params']) if m['params'] else 'None'}`")
             md.append(f"- **Complexity Score**: `{m['complexity_score']}/100`")
-            md.append(f"- **Nested Macro Calls**: `{', '.join(m['nested_calls']) if m['nested_calls'] else 'None'}`")
-            md.append(f"- **Dynamic Naming**: `{'Yes ⚠️' if m['has_dynamic_naming'] else 'No'}`")
+            deps_val = m.get("dependencies") or m.get("nested_calls")
+            md.append(f"- **Dependencies**: `{', '.join(deps_val) if deps_val else 'None'}`")
+            md.append(f"- **Dynamic Naming**: `{'Yes ⚠️' if m.get('has_dynamic_naming') else 'No'}`")
     else:
         md.append("*No macros defined in this program.*\n")
     md.append("\n")
@@ -111,7 +120,7 @@ def render_markdown(doc: ModernizationDocument) -> str:
         for item in doc.manual_review_items:
             md.append(f"- ⚠️ {item}")
     else:
-        md.append("✅ *No manual review items flagged. 100% automated conversion.*")
+        md.append("✅ *No manual review items flagged. Automated conversion completed with no unresolved dependency or structural R issues.*")
     md.append("\n")
 
     # Section 10: Conversion Confidence
