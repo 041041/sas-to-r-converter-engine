@@ -99,14 +99,15 @@ class ModernizationDocument:
     # 9. Manual Review Items
     manual_review_items: list[str]
     # 10. Conversion Confidence
-    overall_confidence: float
-    confidence_rationale: str
+    overall_confidence: float = 95.0
+    confidence_rationale: str = ""
     # Extended Project Engine Metadata
     program_type: str = "Executable Program"
     project_metrics: Optional[dict[str, Any]] = None
     r_validation_status: str = "VALID_R"
     macro_dependency_table: list[dict[str, str]] = field(default_factory=list)
     dataset_lineage_table: list[dict[str, str]] = field(default_factory=list)
+    quality_summary: Optional[Any] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -114,6 +115,7 @@ class ModernizationDocument:
             "program_name": self.program_name,
             "program_type": self.program_type,
             "project_metrics": self.project_metrics,
+            "quality_summary": self.quality_summary.to_dict() if self.quality_summary and hasattr(self.quality_summary, "to_dict") else None,
             "r_validation_status": self.r_validation_status,
             "input_datasets": self.input_datasets,
             "output_datasets": self.output_datasets,
@@ -376,26 +378,18 @@ class DocumentationGenerator:
                 manual_items.append(r_issue)
 
         # 9. Confidence Calculation & Rationale
-        base_confidence = result.overall_confidence if result else 95.0
+        # 9. Evaluate Unified Quality Summary
+        from project_engine.quality import evaluate_quality_summary
+        q_summary = evaluate_quality_summary(
+            conversion_result=result,
+            project_context=project_context,
+            r_code=final_r_code
+        )
 
-        if r_val_status in ("R_REVIEW_REQUIRED", "R_INVALID"):
-            overall_confidence = min(base_confidence, 45.0)
-            rationale = (
-                f"Confidence reduced to {overall_confidence:.1f}% due to unresolved SAS syntax "
-                f"in generated R output ({len(r_issues)} issue(s) flagged for manual review)."
-            )
-        elif is_macro_lib:
-            overall_confidence = 95.0
-            rationale = (
-                "Automated conversion completed with no unresolved dependency or structural R issues; "
-                "execution-based validation is pending."
-            )
-        else:
-            overall_confidence = base_confidence
-            rationale = (
-                f"High confidence for standard SAS steps and macro definitions. "
-                f"Flagged {len(manual_items)} item(s) for manual review."
-            )
+        overall_confidence = float(q_summary.confidence_percentage)
+        rationale = q_summary.confidence_explanation
+        if q_summary.review_items:
+            manual_items = q_summary.review_items
 
         # 10. Executive Summary
         if is_macro_lib:
@@ -404,13 +398,13 @@ class DocumentationGenerator:
                 f"The project contains {macros_count} macro definition(s) across project files "
                 f"with {dep_edges} dependency edge(s) ({res_count}/{macros_count} resolved). "
                 f"Generated {macros_count} modernized R function(s) with 0 execution steps. "
-                f"Achieved overall conversion confidence of {overall_confidence:.1f}%."
+                f"Achieved overall conversion confidence of {overall_confidence:.0f}% ({q_summary.confidence_band.value})."
             )
         else:
             exec_summary = (
                 f"Automated modernization analysis for '{program_name}' (Program Type: {prog_type_str}). "
                 f"The project contains {execution_steps_count} execution step(s) and {macros_count} macro definition(s). "
-                f"Achieved overall conversion confidence of {overall_confidence:.1f}% with "
+                f"Achieved overall conversion confidence of {overall_confidence:.0f}% ({q_summary.confidence_band.value}) with "
                 f"{opt_summary.get('line_reduction_pct', 0.0):.1f}% R code line reduction."
             )
 
@@ -427,7 +421,7 @@ class DocumentationGenerator:
             program_name=program_name,
             program_type=prog_type_str,
             project_metrics=project_metrics,
-            r_validation_status=r_val_status,
+            r_validation_status=q_summary.r_validation_status,
             macro_dependency_table=macro_dep_table,
             dataset_lineage_table=dataset_lineage_table,
             input_datasets=all_inputs,
@@ -443,5 +437,6 @@ class DocumentationGenerator:
             validation_details=val_details,
             manual_review_items=manual_items,
             overall_confidence=overall_confidence,
-            confidence_rationale=rationale
+            confidence_rationale=rationale,
+            quality_summary=q_summary
         )
