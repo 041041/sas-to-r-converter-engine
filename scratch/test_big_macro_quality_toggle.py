@@ -1,7 +1,7 @@
 """
 scratch/test_big_macro_quality_toggle.py
 ──────────────────────────────────────────
-Test the BIG_MACRO 3-file project with the refined '✅ Converted ▾' quality toggle.
+Test the BIG_MACRO 3-file project with native '✅ Converted' popover.
 """
 
 from streamlit.testing.v1 import AppTest
@@ -9,7 +9,7 @@ from project_engine.analyzer import ProjectAnalyzer
 from project_engine.validation import ProjectValidator
 
 def test_big_macro_project_quality_toggle():
-    print("--- Testing BIG_MACRO 3-file project with '✅ Converted' toggle ---")
+    print("--- Testing BIG_MACRO 3-file project with native '✅ Converted' popover ---")
 
     files = [
         ("BIG_MACRO.sas", "%include 'MACRO_A.sas'; %include 'MACRO_B.sas'; %macro_a(in=WORK.DS1); %macro_b(in=WORK.DS2);"),
@@ -35,19 +35,7 @@ def test_big_macro_project_quality_toggle():
     assert qs.macros_count == 2
     assert "Fully Resolved" in qs.project_resolution_label
 
-    # Default state check: collapsed
-    is_q_open = at.session_state["show_conversion_quality"] if "show_conversion_quality" in at.session_state else False
-    assert is_q_open is False
-
-    # Expand check
-    at.button(key="btn_converted_quality_toggle").click().run()
-    assert at.session_state["show_conversion_quality"] is True
-
-    # Collapse check
-    at.button(key="btn_converted_quality_toggle").click().run()
-    assert at.session_state["show_conversion_quality"] is False
-
-    print("✅ BIG_MACRO 3-file project quality toggle verification PASSED!\n")
+    print("✅ BIG_MACRO 3-file project quality verification PASSED!\n")
 
 if __name__ == "__main__":
     test_big_macro_project_quality_toggle()

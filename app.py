@@ -139,26 +139,29 @@ st.markdown("""
         margin-bottom: 0.5rem !important;
     }
 
-    /* Header Quality Toggle Inline Alignment */
-    div[data-testid="column"]:has(.header-quality-toggle) {
+    /* Header Quality Native Popover Alignment */
+    div[data-testid="stHorizontalBlock"]:has(.header-quality-popover-container) {
+        gap: 0 !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.header-quality-popover-container) > div[data-testid="column"]:last-child {
         display: flex !important;
         justify-content: flex-end !important;
         padding-right: 0 !important;
+        margin-right: 0 !important;
     }
-    .header-quality-toggle {
+    .header-quality-popover-container {
         display: flex !important;
         justify-content: flex-end !important;
         align-items: center !important;
         width: 100% !important;
         height: 100% !important;
-        margin-top: -2px !important;
     }
-    .header-quality-toggle div.stButton {
+    .header-quality-popover-container div[data-testid="stPopover"] {
         display: flex !important;
         justify-content: flex-end !important;
         width: auto !important;
     }
-    .header-quality-toggle div.stButton > button {
+    .header-quality-popover-container div[data-testid="stPopover"] > button {
         background: transparent !important;
         border: none !important;
         color: var(--success) !important;
@@ -171,34 +174,10 @@ st.markdown("""
         cursor: pointer !important;
         float: right !important;
     }
-    .header-quality-toggle div.stButton > button:hover {
+    .header-quality-popover-container div[data-testid="stPopover"] > button:hover {
         background: transparent !important;
         color: var(--success) !important;
         opacity: 0.8 !important;
-    }
-
-    /* Quality Panel Overlay (Zero-height flow wrapper) */
-    .quality-panel-overlay-wrapper {
-        position: relative !important;
-        width: 100% !important;
-        height: 0px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        z-index: 1000 !important;
-    }
-    .quality-panel-overlay {
-        position: absolute !important;
-        top: 2px !important;
-        left: 0 !important;
-        right: 0 !important;
-        width: 100% !important;
-        background: var(--bg-surface) !important;
-        border: 1px solid var(--border-color) !important;
-        border-radius: var(--radius) !important;
-        padding: 10px 14px !important;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
-        z-index: 1000 !important;
-        font-size: 0.88rem !important;
     }
 
     /* Card Boxes & Integrated Expander Containers */
@@ -1860,24 +1839,8 @@ quit;"""
         results = st.session_state.get("pipeline_results", [])
         pipeline_run_flag = st.session_state.get("pipeline_run", False)
 
-        # Compact Header Row: R Output Title + Clickable Quality Toggle Status
-        hdr_r_left, hdr_r_right = st.columns([1.5, 1])
-        with hdr_r_left:
-            st.markdown("### ⚙️ R Output")
-        with hdr_r_right:
-            if results:
-                is_q_open = st.session_state.get("show_conversion_quality", False)
-                q_toggle_label = "✅ Converted ▴" if is_q_open else "✅ Converted ▾"
-                st.markdown('<div class="header-quality-toggle">', unsafe_allow_html=True)
-                st.button(
-                    q_toggle_label,
-                    key="btn_converted_quality_toggle",
-                    on_click=toggle_conversion_quality
-                )
-                st.markdown('</div>', unsafe_allow_html=True)
-            elif pipeline_run_flag:
-                st.markdown('<div style="display: flex; align-items: center; justify-content: flex-end; color: var(--warning); font-weight: 600; font-size: 0.88rem; height: 100%;">Converting...</div>', unsafe_allow_html=True)
-
+        q_summary = None
+        full_r_display = ""
         if results:
             all_r_code = []
             for r in results:
@@ -1901,28 +1864,30 @@ quit;"""
             )
             st.session_state["current_quality_summary"] = q_summary
 
-            # ── CONVERSION QUALITY PANEL (Visible only when '✅ Converted ▾' is expanded) ──
-            if st.session_state.get("show_conversion_quality", False):
+        # Compact Header Row: R Output Title + Native Conversion Quality Popover
+        hdr_r_left, hdr_r_right = st.columns([1, 1])
+        with hdr_r_left:
+            st.markdown("### ⚙️ R Output")
+        with hdr_r_right:
+            if results and q_summary:
                 conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
                 manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
 
-                st.markdown(f"""
-                <div class="quality-panel-overlay-wrapper">
-                    <div class="quality-panel-overlay">
-                        <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-bottom: 6px;">
-                            <div><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
-                            <div><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
-                            <div><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
-                        </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 6px;">
-                            <div><strong>Converted:</strong> {conv_items_str}</div>
-                            <div><strong>Manual Review:</strong> {manual_review_str}</div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown('<div class="header-quality-popover-container">', unsafe_allow_html=True)
+                with st.popover("✅ Converted", help="Click to view conversion quality metrics"):
+                    st.markdown(f"""
+                    **Confidence:** `{q_summary.confidence_percentage}%` — **{q_summary.confidence_band.value}**  
+                    **R Validation:** {q_summary.r_validation_label}  
+                    **Project:** {q_summary.project_resolution_label if q_summary.is_project else "Single File"}  
+                    **Converted:** {conv_items_str}  
+                    **Manual Review:** {manual_review_str}
+                    """)
+                st.markdown('</div>', unsafe_allow_html=True)
+            elif pipeline_run_flag:
+                st.markdown('<div style="display: flex; align-items: center; justify-content: flex-end; color: var(--warning); font-weight: 600; font-size: 0.88rem; height: 100%;">Converting...</div>', unsafe_allow_html=True)
 
-            # Generated R Code Box (Immediately follows header / quality panel)
+        if results:
+            # Generated R Code Box (Immediately follows header)
             st.code(full_r_display, language="r")
 
             # Action Controls (BELOW generated R code box)
