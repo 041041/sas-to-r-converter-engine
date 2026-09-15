@@ -69,6 +69,7 @@ st.markdown("""
     :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
         --bg-app: transparent;
         --bg-surface: rgba(128, 128, 128, 0.05);
+        --bg-panel-solid: #ffffff;
         --bg-subtle: rgba(128, 128, 128, 0.08);
         --border-color: rgba(128, 128, 128, 0.2);
         --border-dark: rgba(128, 128, 128, 0.35);
@@ -92,6 +93,18 @@ st.markdown("""
         --error: #DC2626;
         --error-bg: rgba(220, 38, 38, 0.1);
         --radius: 8px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root, .stApp, [data-testid="stApp"], section[data-testid="stSidebar"] {
+            --bg-panel-solid: #1e1e2e;
+        }
+    }
+    .stApp[data-theme="dark"], [data-theme="dark"] {
+        --bg-panel-solid: #1e1e2e;
+    }
+    .stApp[data-theme="light"], [data-theme="light"] {
+        --bg-panel-solid: #ffffff;
     }
 
     .stApp {
@@ -139,45 +152,83 @@ st.markdown("""
         margin-bottom: 0.5rem !important;
     }
 
-    /* Header Quality Native Popover Alignment */
-    div[data-testid="stHorizontalBlock"]:has(.header-quality-popover-container) {
-        gap: 0 !important;
-    }
-    div[data-testid="stHorizontalBlock"]:has(.header-quality-popover-container) > div[data-testid="column"]:last-child {
-        display: flex !important;
-        justify-content: flex-end !important;
-        padding-right: 0 !important;
-        margin-right: 0 !important;
-    }
-    .header-quality-popover-container {
-        display: flex !important;
-        justify-content: flex-end !important;
-        align-items: center !important;
+    /* Stable R Output Header Shell & Native <details> Quality Dropdown */
+    .r-output-header-shell {
+        position: relative !important;
         width: 100% !important;
-        height: 100% !important;
-    }
-    .header-quality-popover-container div[data-testid="stPopover"] {
+        height: 42px !important;
         display: flex !important;
-        justify-content: flex-end !important;
-        width: auto !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+        box-sizing: border-box !important;
     }
-    .header-quality-popover-container div[data-testid="stPopover"] > button {
-        background: transparent !important;
-        border: none !important;
+    .r-output-title {
+        font-size: 1.25rem !important;
+        font-weight: 700 !important;
+        color: var(--text-main) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .conversion-quality-control {
+        position: relative !important;
+        display: inline-block !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .conversion-quality-control summary {
+        list-style: none !important;
+        cursor: pointer !important;
         color: var(--success) !important;
         font-weight: 600 !important;
         font-size: 0.9rem !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        min-height: 0 !important;
-        cursor: pointer !important;
-        float: right !important;
+        user-select: none !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 4px !important;
     }
-    .header-quality-popover-container div[data-testid="stPopover"] > button:hover {
-        background: transparent !important;
-        color: var(--success) !important;
-        opacity: 0.8 !important;
+    .conversion-quality-control summary::-webkit-details-marker {
+        display: none !important;
+    }
+    .conversion-quality-control summary::after {
+        content: " ▾";
+    }
+    .conversion-quality-control[open] summary::after {
+        content: " ▴";
+    }
+    .conversion-quality-panel {
+        position: absolute !important;
+        right: 0 !important;
+        top: calc(100% + 6px) !important;
+        width: 380px !important;
+        max-width: 90vw !important;
+        max-height: 280px !important;
+        overflow-y: auto !important;
+        background-color: var(--bg-panel-solid, #ffffff) !important;
+        background: var(--bg-panel-solid, #ffffff) !important;
+        opacity: 1 !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius) !important;
+        padding: 12px 16px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+        z-index: 5000 !important;
+        font-size: 0.88rem !important;
+        color: var(--text-main) !important;
+        text-align: left !important;
+    }
+    .quality-title {
+        font-weight: 700 !important;
+        border-bottom: 1px solid var(--border-color) !important;
+        padding-bottom: 6px !important;
+        margin-bottom: 8px !important;
+        font-size: 0.92rem !important;
+    }
+    .quality-row {
+        margin-bottom: 6px !important;
     }
 
     /* Card Boxes & Integrated Expander Containers */
@@ -1744,6 +1795,9 @@ if page == "SAS Converter":
     mode = st.session_state.get("app_mode", "Convert Only")
     r_dialect = st.session_state.get("r_dialect", "Modern R (tidyverse)")
 
+    def toggle_conversion_quality():
+        st.session_state["show_conversion_quality"] = not st.session_state.get("show_conversion_quality", False)
+
     # ── Shared 2-Column Code Workspace ──
     col_left, col_right = st.columns(2)
 
@@ -1850,9 +1904,6 @@ quit;"""
                     all_r_code.append(f"# --- {r['name']} ---\n{c}")
             
             full_r_display = "\n\n".join(all_r_code)
-            if "tidyverse" in r_dialect and not full_r_display.startswith("library(tidyverse)"):
-                full_r_display = "library(tidyverse)\n\n" + full_r_display
-
             # Single Source of Truth Quality Summary Evaluation
             from project_engine.quality import evaluate_quality_summary, QualityStatus
             conv_res_obj = st.session_state.get("current_conv_result")
@@ -1864,27 +1915,40 @@ quit;"""
             )
             st.session_state["current_quality_summary"] = q_summary
 
-        # Compact Header Row: R Output Title + Native Conversion Quality Popover
-        hdr_r_left, hdr_r_right = st.columns([1, 1])
-        with hdr_r_left:
-            st.markdown("### ⚙️ R Output")
-        with hdr_r_right:
-            if results and q_summary:
-                conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
-                manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
+        # Stable HTML Header Shell Component with Native HTML <details> Quality Control
+        if results and q_summary:
+            conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
+            manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
 
-                st.markdown('<div class="header-quality-popover-container">', unsafe_allow_html=True)
-                with st.popover("✅ Converted", help="Click to view conversion quality metrics"):
-                    st.markdown(f"""
-                    **Confidence:** `{q_summary.confidence_percentage}%` — **{q_summary.confidence_band.value}**  
-                    **R Validation:** {q_summary.r_validation_label}  
-                    **Project:** {q_summary.project_resolution_label if q_summary.is_project else "Single File"}  
-                    **Converted:** {conv_items_str}  
-                    **Manual Review:** {manual_review_str}
-                    """)
-                st.markdown('</div>', unsafe_allow_html=True)
-            elif pipeline_run_flag:
-                st.markdown('<div style="display: flex; align-items: center; justify-content: flex-end; color: var(--warning); font-weight: 600; font-size: 0.88rem; height: 100%;">Converting...</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="r-output-header-shell">
+                <div class="r-output-title">⚙️ R Output</div>
+                <details class="conversion-quality-control">
+                    <summary>✅ Converted</summary>
+                    <div class="conversion-quality-panel">
+                        <div class="quality-title">Conversion Quality</div>
+                        <div class="quality-row"><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
+                        <div class="quality-row"><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
+                        <div class="quality-row"><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
+                        <div class="quality-row"><strong>Converted:</strong> {conv_items_str}</div>
+                        <div class="quality-row"><strong>Manual Review:</strong> {manual_review_str}</div>
+                    </div>
+                </details>
+            </div>
+            """, unsafe_allow_html=True)
+        elif pipeline_run_flag:
+            st.markdown("""
+            <div class="r-output-header-shell">
+                <div class="r-output-title">⚙️ R Output</div>
+                <div style="color: var(--warning); font-weight: 600; font-size: 0.88rem;">Converting...</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="r-output-header-shell">
+                <div class="r-output-title">⚙️ R Output</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         if results:
             # Generated R Code Box (Immediately follows header)

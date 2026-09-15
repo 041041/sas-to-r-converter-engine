@@ -1,7 +1,7 @@
 """
 scratch/test_big_macro_quality_toggle.py
 ──────────────────────────────────────────
-Test the BIG_MACRO 3-file project with native '✅ Converted' popover.
+Test the BIG_MACRO 3-file project with stable anchored header shell and native details quality dropdown.
 """
 
 from streamlit.testing.v1 import AppTest
@@ -9,7 +9,7 @@ from project_engine.analyzer import ProjectAnalyzer
 from project_engine.validation import ProjectValidator
 
 def test_big_macro_project_quality_toggle():
-    print("--- Testing BIG_MACRO 3-file project with native '✅ Converted' popover ---")
+    print("--- Testing BIG_MACRO 3-file project with stable anchored header shell ---")
 
     files = [
         ("BIG_MACRO.sas", "%include 'MACRO_A.sas'; %include 'MACRO_B.sas'; %macro_a(in=WORK.DS1); %macro_b(in=WORK.DS2);"),
@@ -35,7 +35,7 @@ def test_big_macro_project_quality_toggle():
     assert qs.macros_count == 2
     assert "Fully Resolved" in qs.project_resolution_label
 
-    print("✅ BIG_MACRO 3-file project quality verification PASSED!\n")
+    print("✅ BIG_MACRO 3-file project stable anchored header shell verification PASSED!\n")
 
 if __name__ == "__main__":
     test_big_macro_project_quality_toggle()

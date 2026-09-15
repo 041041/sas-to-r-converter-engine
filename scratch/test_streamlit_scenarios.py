@@ -21,7 +21,7 @@ def run_streamlit_tests():
     print(f"Confidence: {qs_a.confidence_percentage}% ({qs_a.confidence_band.value}) | R Validation: {qs_a.r_validation_label}")
     assert qs_a.status.value in ("SUCCESS", "SUCCESS_WITH_REVIEW")
     assert qs_a.r_validation_status == "VALID_R"
-    print("✅ Scenario A PASS (including Native Quality Popover)\n")
+    print("✅ Scenario A PASS (including Stable Anchored Header Shell & Native HTML Details Dropdown)\n")
 
     # Scenario C: Manual Review / Partial Case
     at.text_area[0].input("proc format; value agefmt 18-30='Young'; run;").run()
