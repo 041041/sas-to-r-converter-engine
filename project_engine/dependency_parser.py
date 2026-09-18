@@ -13,13 +13,23 @@ class DependencyParser:
     """Parses SAS code to discover macro calls while ignoring built-in SAS macro keywords."""
 
     BUILTIN_MACROS = {
-        "macro", "mend", "let", "if", "then", "else", "do", "end", "put",
-        "global", "local", "include", "str", "nstr", "quote", "bquote",
-        "eval", "sysevalf", "sysfunc", "goto", "return", "display", "window",
-        "symdef", "symdel", "sysget", "superq", "qsysfunc", "tslit", "unquote",
-        "upcase", "lowcase", "substr", "scan", "sysrc", "sysmsg", "syserr",
-        "sysjobid", "sysdate", "sysdate9", "systime", "sysday", "sysver",
-        "sysexec", "abort", "input", "index", "length", "left", "right"
+        # Control / Language Statements & Keywords
+        "macro", "mend", "let", "if", "then", "else", "do", "end", "to", "while",
+        "until", "by", "goto", "return", "quit", "run", "abort", "put", "global",
+        "local", "include", "window", "display", "input", "label",
+
+        # Built-in Macro Functions & Special Character Masking Functions
+        "str", "nstr", "nrstr", "quote", "nrquote", "bquote", "nrbquote", "unquote",
+        "superq", "eval", "sysevalf", "sysfunc", "qsysfunc", "tslit",
+
+        # Built-in String & Formatting Functions
+        "upcase", "qupcase", "lowcase", "qlowcase", "substr", "qsubstr",
+        "scan", "qscan", "index", "length", "qlength", "verify", "qverify",
+        "left", "qleft", "right", "qright", "trim", "qtrim",
+
+        # Built-in System & Environment Utilities
+        "symdef", "symdel", "sysget", "sysrc", "sysmsg", "syserr", "sysjobid",
+        "sysdate", "sysdate9", "systime", "sysday", "sysver", "sysexec", "syscall"
     }
 
     MACRO_CALL_PATTERN = re.compile(r"%([a-zA-Z_]\w*)\b", re.IGNORECASE)

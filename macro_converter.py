@@ -305,6 +305,10 @@ class MacroParser:
         'TRIM', 'LEFT', 'RIGHT', 'LENGTH', 'INDEX', 'QUOTE', 'NRQUOTE',
         'STR', 'NRSTR', 'BQUOTE', 'NRBQUOTE', 'SUPERQ', 'EVAL', 'SYSEVAL',
         'QSCAN', 'QSUBSTR', 'QLEFT', 'QTRIM', 'RETURN', 'GOTO', 'ABORT',
+        'TO', 'WHILE', 'UNTIL', 'BY', 'QUIT', 'RUN', 'WINDOW', 'DISPLAY',
+        'QUPCASE', 'QLOWCASE', 'QLENGTH', 'VERIFY', 'QVERIFY', 'QSYSFUNC',
+        'SYSEVALF', 'UNQUOTE', 'SYMDEL', 'SYMDEF', 'SYSGET', 'TSLIT',
+        'SYSMSG', 'SYSRC', 'SYSERR', 'SYSEXEC', 'SYSCALL'
     })
 
     def parse(self, name: str, params: list, body: str) -> MacroIR:
