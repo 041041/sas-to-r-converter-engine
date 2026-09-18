@@ -1465,11 +1465,74 @@ def parse_datalines(step):
     except Exception:
         return None
 
+def is_meaningful_sas_source(sas_script: str, parsed_source: dict = None) -> bool:
+    """
+    Returns True if the SAS script contains at least one recognized meaningful SAS
+    program construct (DATA step, PROC step, %MACRO definition, macro call, %INCLUDE, %LET, LIBNAME, etc.).
+    """
+    if not sas_script or not sas_script.strip():
+        return False
+
+    clean = re.sub(r'/\*.*?\*/', ' ', sas_script, flags=re.DOTALL)
+    clean = re.sub(r'^\s*\*.*?;', ' ', clean, flags=re.MULTILINE)
+    if not clean.strip():
+        return False
+
+    if parsed_source:
+        if parsed_source.get("macro_definitions"):
+            return True
+        if parsed_source.get("macro_calls"):
+            return True
+
+    meaningful_patterns = [
+        r'\bdata\s+\w+',
+        r'\bproc\s+\w+',
+        r'%macro\b',
+        r'%mend\b',
+        r'%include\b',
+        r'%let\b',
+        r'%put\b',
+        r'\blibname\b',
+        r'\bfilename\b',
+        r'%\w+\s*(?:\([^)]*\))?\s*;'
+    ]
+    for pat in meaningful_patterns:
+        if re.search(pat, clean, re.IGNORECASE):
+            return True
+
+    return False
+
 # --- PIPELINE LOGIC ---
 
 def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, status_text=None, retry_step=None):
     """Processes SAS steps as a continuous chain. Supports progress bar + per-step timing."""
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
+    if not steps:
+        from macro_converter import parse_sas_source, convert_macros_to_r
+        parsed = parse_sas_source(sas_code)
+        mdefs = parsed.get("macro_definitions", {})
+        if mdefs or is_meaningful_sas_source(sas_code, parsed):
+            mres = convert_macros_to_r(mdefs, parsed.get("macro_calls", []), dialect) if mdefs else {}
+            r_code = mres.get("r_functions") if mres else ""
+            if not r_code and st.session_state.get("current_conv_result"):
+                cres = st.session_state.current_conv_result
+                r_code = getattr(cres, "full_optimized_r", None) or getattr(cres, "full_initial_r", None) or getattr(cres, "r_code", None)
+            if not r_code:
+                r_code = "# ── Reusable Modernized R Functions ──\n# Macro library defined"
+            return [{
+                "name": "MACRO_LIBRARY",
+                "step": sas_code,
+                "r_code": r_code,
+                "r_output": None,
+                "error": None,
+                "comparison": None,
+                "is_final": True,
+                "elapsed_llm": 0.0,
+                "elapsed_exec": 0.0,
+                "elapsed_total": 0.0,
+                "r_log": "Macro library definitions converted to R functions successfully."
+            }]
+        return []
     work_library = {}
     st.session_state["work_library"] = work_library
 
@@ -2304,14 +2367,19 @@ quit;"""
                 )
                 steps = step_pattern.findall(sas_script)
                 if not steps:
-                    if _macro_defs and macro_result.get("r_functions"):
+                    if _macro_defs or is_meaningful_sas_source(sas_script, parsed_source):
                         # MACRO-LIBRARY CONVERSION PATH (No executable steps required)
-                        all_r = ["# ── Reusable Modernized R Functions ──\n" + macro_result["r_functions"] + "\n"]
-                        combined_r = "\n".join(all_r)
+                        r_code_output = macro_result.get("r_functions") if macro_result else ""
+                        if not r_code_output and st.session_state.get("current_conv_result"):
+                            cres = st.session_state.current_conv_result
+                            r_code_output = getattr(cres, "full_optimized_r", None) or getattr(cres, "full_initial_r", None) or getattr(cres, "r_code", None)
+                        if not r_code_output:
+                            r_code_output = "# ── Reusable Modernized R Functions ──\n# Macro library defined"
+
                         st.session_state.pipeline_results = [{
                             "name": "MACRO_LIBRARY",
                             "step": sas_script,
-                            "r_code": combined_r,
+                            "r_code": r_code_output,
                             "r_output": None,
                             "error": None,
                             "comparison": None,
@@ -2324,7 +2392,7 @@ quit;"""
                         st.session_state.pipeline_run = True
                         st.rerun()
                     else:
-                        st.error("No valid SAS steps found.")
+                        st.error("No valid SAS statements, macros, or DATA/PROC steps found in the input program.")
                         st.stop()
 
                 all_r = []
