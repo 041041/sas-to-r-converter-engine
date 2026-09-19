@@ -42,6 +42,11 @@ class RuleEngine:
         if re.search(r"proc\s+sort", code, re.I):
             r_code = self._translate_proc_sort(code)
             if r_code: return r_code, 0.95, "Rule_ProcSort"
+
+        # 2b. PROC CONTENTS Rule
+        if re.search(r"proc\s+contents", code, re.I):
+            r_code = self._translate_proc_contents(code)
+            if r_code: return r_code, 0.95, "Rule_ProcContents"
             
         # 3. PROC FREQ Rule
         if re.search(r"proc\s+freq", code, re.I):
@@ -230,6 +235,7 @@ class RuleEngine:
         expr = RuleEngine._normalize_sas_date_literals(expr)
         expr = RuleEngine._normalize_sas_char_missing(expr)
         expr = RuleEngine._normalize_sas_elementwise_functions(expr)
+        expr = RuleEngine._normalize_sas_sql_like(expr)
 
         # Handle SAS missing() function and IS NOT NULL / IS NULL
         expr = re.sub(r'\bnot\s+missing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'!is.na(\1)', expr, flags=re.I)
@@ -1306,6 +1312,15 @@ class RuleEngine:
             return None
         select_str = select_m.group(1).strip()
 
+        # Extract INTO :var clause if present
+        into_vars = []
+        into_m = re.search(r"\binto\s+(:[a-zA-Z_]\w*(?:\s*,\s*:[a-zA-Z_]\w*)*)", select_str, re.I)
+        if into_m:
+            into_str = into_m.group(1).strip()
+            into_vars = re.findall(r":([a-zA-Z_]\w*)", into_str)
+            select_str = select_str[:into_m.start()] + select_str[into_m.end():]
+            select_str = select_str.strip()
+
         # FAIL-CLOSED Safety Gate: Reject queries with unhandled CASE statements
         total_cases = len(re.findall(r'\bcase\b', select_str, re.I))
         sum_cases = len(re.findall(r'sum\s*\(\s*case\s+when', select_str, re.I))
@@ -1580,15 +1595,20 @@ class RuleEngine:
                 else:
                     order_terms.append(clean_var)
 
-        lines = [f"{out_ds} <- {in_ds}"]
+        target_name = out_ds
+        if into_vars and out_ds == "RESULT":
+            target_name = into_vars[0]
+
+        lines = [f"{target_name} <- {in_ds}"]
 
         if join_ds:
             if join_on:
                 lines.append(f"  dplyr::{join_type}({join_ds}, by = {join_on})")
             else:
                 lines.append(f"  dplyr::{join_type}({join_ds})")
-            if where_cond:
-                lines.append(f"  dplyr::filter({where_cond})")
+
+        if where_cond:
+            lines.append(f"  dplyr::filter({where_cond})")
 
         if mutate_items:
             m_str = ",\n    ".join(mutate_items)
@@ -1597,8 +1617,6 @@ class RuleEngine:
         if select_cols:
             s_cols_str = ", ".join(select_cols)
             lines.append(f"  dplyr::select({s_cols_str})")
-            if where_cond:
-                lines.append(f"  dplyr::filter({where_cond})")
 
         if group_vars:
             g_str = ", ".join(group_vars)
@@ -1615,7 +1633,16 @@ class RuleEngine:
             o_str = ", ".join(order_terms)
             lines.append(f"  dplyr::arrange({o_str})")
 
+        if into_vars and (summarise_items or not select_cols):
+            lines.append("  dplyr::pull(1)")
+
         if len(lines) == 1:
+            if into_vars and select_str:
+                # Handle single scalar string/value select into e.g. select 'Y' into :_trt_time
+                val_clean = select_str.strip("'\"")
+                if val_clean.isupper() or val_clean.isdigit():
+                    return f'{target_name} <- "{val_clean}"'
+                return f"{target_name} <- {select_str}"
             return None
 
         pipeline = " %>%\n".join(lines)
@@ -1668,3 +1695,54 @@ class RuleEngine:
         if target_ds:
             return f"{target_ds} <- {call_str}"
         return call_str
+
+    def _translate_proc_contents(self, code: str) -> Optional[str]:
+        """Translates PROC CONTENTS into R metadata extraction using tibble."""
+        if not re.search(r"proc\s+contents", code, re.I):
+            return None
+
+        data_m = re.search(r"\bdata\s*=\s*([\w.]+)", code, re.I)
+        in_ds = data_m.group(1).split('.')[-1].upper() if data_m else "DATASET"
+
+        out_m = re.search(r"\bout\s*=\s*([\w.]+)", code, re.I)
+        out_ds = out_m.group(1).split('.')[-1].upper() if out_m else f"CONTENTS_{in_ds}"
+
+        r_code = (
+            f"{out_ds} <- tibble::tibble(\n"
+            f"  name = names({in_ds}),\n"
+            f"  type = vapply({in_ds}, function(x) class(x)[1], character(1))\n"
+            f")"
+        )
+        return r_code
+
+    @staticmethod
+    def _normalize_sas_sql_like(expr: str) -> str:
+        """
+        Translates SAS SQL LIKE expressions into R grepl() regex matching:
+        - 'TR__STM' -> grepl("^TR..STM$", lhs)
+        - 'TR%' -> grepl("^TR.*$", lhs)
+        - '%STM' -> grepl("^.*STM$", lhs)
+        - '%TR%' -> grepl("TR", lhs)
+        """
+        def _like_repl(match):
+            lhs = match.group(1).strip()
+            negated = bool(match.group(2))
+            pattern = match.group(3)
+
+            res = ""
+            for char in pattern:
+                if char == '%':
+                    res += ".*"
+                elif char == '_':
+                    res += "."
+                else:
+                    res += re.escape(char)
+
+            regex_pat = f"^{res}$"
+            func = f'grepl("{regex_pat}", {lhs})'
+            if negated:
+                return f"!{func}"
+            return func
+
+        pat = r'\b([a-zA-Z_]\w*(?:\([^)]*\))?)\s+(not\s+)?like\s+[\'"](.*?)[\'"]'
+        return re.sub(pat, _like_repl, expr, flags=re.I)

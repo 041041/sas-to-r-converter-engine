@@ -42,6 +42,20 @@ def validate_generated_r_code(r_code: str) -> tuple[str, list[str]]:
             for us in set(unresolved_statements):
                 issues.append(f"Unresolved SAS macro statement: %{us.upper()} (line {idx})")
 
+        # Match unstripped SQL INTO :var
+        if re.search(r'\binto\s*:', code_part, re.I):
+            issues.append(f"Invalid R syntax: Unstripped SQL INTO :macro_variable clause (line {idx})")
+
+        # Match unconverted SQL LIKE operator
+        if re.search(r'\blike\s+[\'"]', code_part, re.I):
+            issues.append(f"Invalid R syntax: Unconverted SQL LIKE operator (line {idx})")
+
+        # Match unexpanded macro functions
+        unresolved_funcs = re.findall(r'%(sysfunc|qscan|scan)\b', code_part, re.I)
+        if unresolved_funcs:
+            for uf in set(unresolved_funcs):
+                issues.append(f"Unresolved SAS macro function: %{uf.upper()} (line {idx})")
+
     if issues:
         return "R_REVIEW_REQUIRED", issues
     return "VALID_R", []

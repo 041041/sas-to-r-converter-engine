@@ -54,6 +54,9 @@ class MacroFrame:
         self.vars[name.upper()] = val
 
 
+from project_engine.schema_registry import DatasetSchemaRegistry
+
+
 # ─────────────────────────────────────────────────────────────────
 # MAIN PROCESSOR CLASS
 # ─────────────────────────────────────────────────────────────────
@@ -65,11 +68,12 @@ class SASMacroProcessor:
 
     MAX_DEPTH = 10  # max recursion depth for nested macro calls
 
-    def __init__(self):
+    def __init__(self, schema_registry: DatasetSchemaRegistry | None = None):
         self.macro_library: dict = {}   # {NAME: {params, body}}
         self.let_vars: dict = {}        # {NAME: value}
         self.sql_var_hints: list = []   # hints for LLM
         self.warnings: list = []        # non-fatal issues
+        self.schema_registry = schema_registry or DatasetSchemaRegistry()
         self.global_frame = MacroFrame("GLOBAL", is_global=True)
         self.frame_stack: list[MacroFrame] = [self.global_frame]
 
@@ -220,24 +224,14 @@ class SASMacroProcessor:
 
         # Evaluate nested macro calls from innermost to outermost (max 10 passes)
         for _ in range(10):
-            # 1. %SYSFUNC(today() [, format]) or %SYSFUNC(date() [, format])
-            m_sys = re.search(r'%sysfunc\s*\(\s*(today|date)\s*\(\s*\)\s*(?:,\s*[^)]+)?\s*\)', expr, re.I)
-            if m_sys:
-                expr = expr[:m_sys.start()] + "Sys.Date()" + expr[m_sys.end():]
-                continue
-
-            # Guard: any other %sysfunc call -> SAFE REJECT
-            if re.search(r'%sysfunc\b', expr, re.I):
-                return None
-
-            # 2. %LENGTH(text)
+            # 1. %LENGTH(text)
             m_len = re.search(r'%length\s*\(\s*([^()]*)\s*\)', expr, re.I)
             if m_len:
                 raw_text = m_len.group(1).strip("'\"")
                 expr = expr[:m_len.start()] + str(len(raw_text)) + expr[m_len.end():]
                 continue
 
-            # 3. %INDEX(text, substr)
+            # 2. %INDEX(text, substr)
             m_idx = re.search(r'%index\s*\(\s*([^(),]+)\s*,\s*([^()]+)\s*\)', expr, re.I)
             if m_idx:
                 src = m_idx.group(1).strip().strip("'\"")
@@ -247,7 +241,7 @@ class SASMacroProcessor:
                 expr = expr[:m_idx.start()] + str(res_idx) + expr[m_idx.end():]
                 continue
 
-            # 4. %SUBSTR(text, start [, len])
+            # 3. %SUBSTR(text, start [, len])
             m_sub = re.search(r'%substr\s*\(\s*([^(),]+)\s*,\s*(\d+)\s*(?:,\s*(\d+))?\s*\)', expr, re.I)
             if m_sub:
                 src = m_sub.group(1).strip().strip("'\"")
@@ -264,8 +258,8 @@ class SASMacroProcessor:
                 expr = expr[:m_sub.start()] + res_str + expr[m_sub.end():]
                 continue
 
-            # 5. %SCAN(text, n [, delim])
-            m_scan = re.search(r'%scan\s*\(\s*([^(),]+)\s*,\s*(\d+)\s*(?:,\s*(%str\([^)]*\)|[^(),]+))?\s*\)', expr, re.I)
+            # 4. %SCAN(text, n [, delim]) / %QSCAN(text, n [, delim])
+            m_scan = re.search(r'%q?scan\s*\(\s*([^(),]+)\s*,\s*(\d+)\s*(?:,\s*(%str\([^)]*\)|[^(),]+))?\s*\)', expr, re.I)
             if m_scan:
                 src = m_scan.group(1).strip().strip("'\"")
                 n_idx = int(m_scan.group(2))
@@ -286,12 +280,79 @@ class SASMacroProcessor:
                     tokens = src.split()
 
                 if 1 <= n_idx <= len(tokens):
-                    res_scan = tokens[n_idx - 1]
+                    res_tok = tokens[n_idx - 1]
                 else:
-                    res_scan = ""
-
-                expr = expr[:m_scan.start()] + res_scan + expr[m_scan.end():]
+                    res_tok = ""
+                expr = expr[:m_scan.start()] + res_tok + expr[m_scan.end():]
                 continue
+
+            # 5a. %SYSFUNC(open(dataset [, mode]))
+            m_open = re.search(r'%sysfunc\s*\(\s*open\s*\(\s*([^,()]+)(?:,\s*[^)]+)?\s*\)\s*\)', expr, re.I)
+            if m_open:
+                ds_name = m_open.group(1).strip("'\"")
+                if self.schema_registry.normalize_name(ds_name) not in self.schema_registry._schemas:
+                    self.warnings.append(f"⚠️ Unsupported %SYSFUNC open() for unregistered dataset {ds_name}")
+                handle = self.schema_registry.open(ds_name)
+                expr = expr[:m_open.start()] + str(handle) + expr[m_open.end():]
+                continue
+
+            # 5b. %SYSFUNC(varnum(dsid, var_name))
+            m_varnum = re.search(r'%sysfunc\s*\(\s*varnum\s*\(\s*([^,()]+)\s*,\s*([^()]+)\s*\)\s*\)', expr, re.I)
+            if m_varnum:
+                h_or_ds = m_varnum.group(1).strip("'\"")
+                v_name = m_varnum.group(2).strip("'\"")
+                v_pos = self.schema_registry.varnum(h_or_ds, v_name)
+                expr = expr[:m_varnum.start()] + str(v_pos) + expr[m_varnum.end():]
+                continue
+
+            # 5c. %SYSFUNC(close(dsid))
+            m_close = re.search(r'%sysfunc\s*\(\s*close\s*\(\s*([^()]+)\s*\)\s*\)', expr, re.I)
+            if m_close:
+                h_val = m_close.group(1).strip("'\"")
+                self.schema_registry.close(h_val)
+                expr = expr[:m_close.start()] + "0" + expr[m_close.end():]
+                continue
+
+            # 5d. %SYSFUNC(countw(str [, delim]))
+            m_cnt = re.search(r'%sysfunc\s*\(\s*countw\s*\(\s*([^()]*)\s*\)\s*\)', expr, re.I)
+            if m_cnt:
+                txt = m_cnt.group(1).strip("'\"")
+                cnt_val = len(txt.split()) if txt else 0
+                expr = expr[:m_cnt.start()] + str(cnt_val) + expr[m_cnt.end():]
+                continue
+
+            # 5e. %SYSFUNC(strip/upcase/lowcase(str))
+            m_str_fn = re.search(r'%sysfunc\s*\(\s*(strip|upcase|lowcase)\s*\(\s*([^()]*)\s*\)\s*\)', expr, re.I)
+            if m_str_fn:
+                fn_type = m_str_fn.group(1).lower()
+                arg_txt = m_str_fn.group(2).strip("'\"")
+                if fn_type == "strip":
+                    res_txt = arg_txt.strip()
+                elif fn_type == "upcase":
+                    res_txt = arg_txt.upper()
+                else:
+                    res_txt = arg_txt.lower()
+                expr = expr[:m_str_fn.start()] + res_txt + expr[m_str_fn.end():]
+                continue
+
+            # 5f. %SYSFUNC(putn(num, format)) e.g. putn(1, z2.) -> "01"
+            m_putn = re.search(r'%sysfunc\s*\(\s*putn\s*\(\s*(\d+)\s*,\s*z(\d+)\.\s*\)\s*\)', expr, re.I)
+            if m_putn:
+                num_val = int(m_putn.group(1))
+                width = int(m_putn.group(2))
+                res_txt = f"{num_val:0{width}d}"
+                expr = expr[:m_putn.start()] + res_txt + expr[m_putn.end():]
+                continue
+
+            # 5g. %SYSFUNC(today() [, format]) or %SYSFUNC(date() [, format])
+            m_sys = re.search(r'%sysfunc\s*\(\s*(today|date)\s*\(\s*\)\s*(?:,\s*[^)]+)?\s*\)', expr, re.I)
+            if m_sys:
+                expr = expr[:m_sys.start()] + "Sys.Date()" + expr[m_sys.end():]
+                continue
+
+            # Guard: any other %sysfunc call -> SAFE REJECT
+            if re.search(r'%sysfunc\b', expr, re.I):
+                return None
 
             # 6. %UPCASE(text)
             m_up = re.search(r'%upcase\s*\(\s*([^()]*)\s*\)', expr, re.I)
@@ -603,7 +664,7 @@ class SASMacroProcessor:
     def _detect_sql_macro_vars(self, code: str):
         """
         Find PROC SQL INTO: patterns — these create macro vars from data.
-        We can't resolve them statically, but we generate LLM hints.
+        Sets default scalar value ("1") in macro context for downstream loop expansion.
         """
         pattern = re.compile(
             r'select\s+(.+?)\s+into\s+:(\w+)\s+from\s+([\w.]+)',
@@ -613,14 +674,12 @@ class SASMacroProcessor:
             expr  = m.group(1).strip()
             var   = m.group(2).strip()
             table = m.group(3).strip()
+            self._set_var_in_scope(var, "1")
+            self.let_vars[var.upper()] = "1"
             hint  = (f"Macro variable &{var} was generated by SQL: "
                      f"SELECT {expr} INTO :{var} FROM {table}. "
                      f"In R, compute this with dplyr before using the value.")
             self.sql_var_hints.append(hint)
-            self.warnings.append(
-                f"⚠️ SQL-generated macro variable &{var} detected — "
-                f"auto-resolved to R comment. Review generated code."
-            )
 
     # ── STEP 8: EXPAND MACRO CALLS ──────────────────────────────
 
