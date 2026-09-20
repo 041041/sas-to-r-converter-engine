@@ -533,10 +533,14 @@ class SASMacroProcessor:
             for name, value in let_dict.items():
                 if not name:
                     continue
-                # &NAME. (with dot separator)
-                code = re.sub(rf'(?<!&)&{name}\.', str(value), code, flags=re.IGNORECASE)
-                # &NAME (without dot)
-                code = re.sub(rf'(?<!&)&{name}\b', str(value), code, flags=re.IGNORECASE)
+                val_str = str(value) if value is not None else ""
+                if val_str == "":
+                    # Preserve runtime macro symbol name (e.g. G_PRDCNT) when unassigned/empty
+                    code = re.sub(rf'(?<!&)&{name}\.', name, code, flags=re.IGNORECASE)
+                    code = re.sub(rf'(?<!&)&{name}\b', name, code, flags=re.IGNORECASE)
+                else:
+                    code = re.sub(rf'(?<!&)&{name}\.', val_str, code, flags=re.IGNORECASE)
+                    code = re.sub(rf'(?<!&)&{name}\b', val_str, code, flags=re.IGNORECASE)
             if code == orig_code:
                 break
         return code
@@ -645,6 +649,10 @@ class SASMacroProcessor:
                     let_val_sub = self._substitute_let_vars(let_val_raw, iter_vars)
                     if '&&' in let_val_sub:
                         let_val_sub, _ = self._resolve_bounded_indirect_reference(let_val_sub, iter_vars, var)
+                    eval_val = self._evaluate_bounded_macro_functions(let_val_sub, iter_vars)
+                    if eval_val is not None:
+                        let_val_sub = eval_val
+                    self._set_var_in_scope(let_name, let_val_sub)
                     iter_vars[let_name] = let_val_sub
 
                 iteration = re.sub(r'%let\s+\w+\s*=\s*.*?;', '', iteration, flags=re.IGNORECASE)

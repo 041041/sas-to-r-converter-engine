@@ -36,7 +36,7 @@ def test_3_select_into_scalar():
     assert r_code is not None
     assert rule == "Rule_ProcSQL"
     assert "dplyr::select('Y' into" not in r_code
-    assert "_trt_time <-" in r_code
+    assert "trt_time <-" in r_code
 
 def test_4_select_count_into():
     re_engine = RuleEngine()

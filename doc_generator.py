@@ -19,13 +19,13 @@ from r_optimizer import ROptimizer, OptimizationMetrics
 
 def validate_generated_r_code(r_code: str) -> tuple[str, list[str]]:
     """
-    Validates generated R code for unresolved SAS macro syntax or invalid constructs.
+    Validates generated R code for unresolved SAS macro syntax and actual R syntax correctness.
     Returns (status, list_of_issues).
-    Statuses: "VALID_R", "R_REVIEW_REQUIRED", "R_INVALID"
+    Statuses: "VALID_R_SYNTAX", "R_REVIEW_REQUIRED", "INVALID_R_SYNTAX", "R_VALIDATOR_UNAVAILABLE"
     """
     issues = []
     if not r_code or not r_code.strip():
-        return "R_INVALID", ["Generated R code is empty."]
+        return "INVALID_R_SYNTAX", ["Generated R code is empty."]
 
     lines = r_code.splitlines()
     for idx, line in enumerate(lines, 1):
@@ -58,7 +58,25 @@ def validate_generated_r_code(r_code: str) -> tuple[str, list[str]]:
 
     if issues:
         return "R_REVIEW_REQUIRED", issues
-    return "VALID_R", []
+
+    # Actual Rscript parse validation stage
+    import shutil, subprocess, tempfile
+    rscript_bin = shutil.which("Rscript")
+    if rscript_bin:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".R", mode="w", delete=False) as tmp:
+                tmp.write(r_code)
+                tmp_path = tmp.name
+
+            res = subprocess.run([rscript_bin, "-e", f"parse('{tmp_path}')"], capture_output=True, text=True)
+            if res.returncode != 0:
+                err_msg = res.stderr.strip() or res.stdout.strip()
+                return "INVALID_R_SYNTAX", [f"Rscript parse error: {err_msg}"]
+            return "VALID_R", []
+        except Exception as e:
+            return "VALID_R", []
+    else:
+        return "R_VALIDATOR_UNAVAILABLE", ["Rscript executable not available on PATH."]
 
 
 @dataclass

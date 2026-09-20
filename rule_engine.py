@@ -47,6 +47,11 @@ class RuleEngine:
         if re.search(r"proc\s+contents", code, re.I):
             r_code = self._translate_proc_contents(code)
             if r_code: return r_code, 0.95, "Rule_ProcContents"
+
+        # 2c. PROC DATASETS Rule
+        if re.search(r"proc\s+datasets", code, re.I):
+            r_code = self._translate_proc_datasets(code)
+            if r_code: return r_code, 0.90, "Rule_ProcDatasets"
             
         # 3. PROC FREQ Rule
         if re.search(r"proc\s+freq", code, re.I):
@@ -1314,10 +1319,13 @@ class RuleEngine:
 
         # Extract INTO :var clause if present
         into_vars = []
-        into_m = re.search(r"\binto\s+(:[a-zA-Z_]\w*(?:\s*,\s*:[a-zA-Z_]\w*)*)", select_str, re.I)
+        sep_char = None
+        into_m = re.search(r"\binto\s+(:[a-zA-Z_]\w*(?:\s*,\s*:[a-zA-Z_]\w*)*)(?:\s+separated\s+by\s+(['\"])(.*?)\2)?", select_str, re.I)
         if into_m:
             into_str = into_m.group(1).strip()
             into_vars = re.findall(r":([a-zA-Z_]\w*)", into_str)
+            if into_m.group(2) is not None:
+                sep_char = into_m.group(3)
             select_str = select_str[:into_m.start()] + select_str[into_m.end():]
             select_str = select_str.strip()
 
@@ -1599,6 +1607,7 @@ class RuleEngine:
         if into_vars and out_ds == "RESULT":
             target_name = into_vars[0]
 
+        target_name = target_name.lstrip('_')
         lines = [f"{target_name} <- {in_ds}"]
 
         if join_ds:
@@ -1615,8 +1624,21 @@ class RuleEngine:
             lines.append(f"  dplyr::mutate(\n    {m_str}\n  )")
 
         if select_cols:
-            s_cols_str = ", ".join(select_cols)
-            lines.append(f"  dplyr::select({s_cols_str})")
+            def _is_literal_constant(token: str) -> bool:
+                t = token.strip()
+                if (t.startswith("'") and t.endswith("'")) or (t.startswith('"') and t.endswith('"')):
+                    return True
+                try:
+                    float(t)
+                    return True
+                except ValueError:
+                    return False
+
+            if into_vars and len(select_cols) == 1 and _is_literal_constant(select_cols[0]):
+                lines.append(f"  dplyr::transmute(val = {select_cols[0]})")
+            else:
+                s_cols_str = ", ".join(select_cols)
+                lines.append(f"  dplyr::select({s_cols_str})")
 
         if group_vars:
             g_str = ", ".join(group_vars)
@@ -1633,8 +1655,11 @@ class RuleEngine:
             o_str = ", ".join(order_terms)
             lines.append(f"  dplyr::arrange({o_str})")
 
-        if into_vars and (summarise_items or not select_cols):
-            lines.append("  dplyr::pull(1)")
+        if into_vars and len(lines) > 1:
+            if sep_char is not None:
+                lines.append(f"  dplyr::pull(1) %>% paste(collapse = '{sep_char}')")
+            else:
+                lines.append("  dplyr::pull(1)")
 
         if len(lines) == 1:
             if into_vars and select_str:
@@ -1646,6 +1671,8 @@ class RuleEngine:
             return None
 
         pipeline = " %>%\n".join(lines)
+        if into_vars or out_ds == "RESULT":
+            return pipeline
         return f"{pipeline}\n{out_ds}"
 
     def _translate_macro_call(self, code: str) -> Optional[str]:
@@ -1714,6 +1741,25 @@ class RuleEngine:
             f")"
         )
         return r_code
+
+    def _translate_proc_datasets(self, code: str) -> Optional[str]:
+        """Translates PROC DATASETS statements (e.g. proc datasets lib=work kill; run;) to R dataset cleanup."""
+        if not re.search(r"proc\s+datasets", code, re.I):
+            return None
+
+        # Check for KILL option (clears all objects in workspace environment)
+        if re.search(r"\bkill\b", code, re.I):
+            return "# PROC DATASETS KILL → Clear environment\nrm(list = ls(envir = .GlobalEnv))"
+
+        # Check for DELETE statement (delete specific dataset(s))
+        del_m = re.search(r"\bdelete\s+([\w\s]+);", code, re.I)
+        if del_m:
+            targets = [t.strip().upper() for t in del_m.group(1).split() if t.strip()]
+            if targets:
+                t_str = ", ".join(targets)
+                return f"# PROC DATASETS DELETE → Base R rm()\nrm({t_str}, errors = FALSE)"
+
+        return "# PROC DATASETS → Base R environment cleanup"
 
     @staticmethod
     def _normalize_sas_sql_like(expr: str) -> str:

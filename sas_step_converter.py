@@ -55,7 +55,7 @@ class SASStepConverter:
         self.optimizer = ROptimizer(dialect=dialect)
         self.infra_analyzer = InfrastructureAnalyzer()
 
-    def convert_program(self, sas_code: str, llm_fallback_fn: Optional[Any] = None, raw_sas_code: Optional[str] = None) -> ProgramConversionResult:
+    def convert_program(self, sas_code: str, llm_fallback_fn: Optional[Any] = None, raw_sas_code: Optional[str] = None, extra_files: Optional[list[str]] = None) -> ProgramConversionResult:
         """
         Converts an entire SAS program into an optimized R script with complete metadata.
         """
@@ -65,7 +65,7 @@ class SASStepConverter:
         # 2. Expand macro calls for step execution
         from macro_processor import SASMacroProcessor
         processor = SASMacroProcessor()
-        expanded_code, macro_warns, _ = processor.process(sas_code)
+        expanded_code, macro_warns, _ = processor.process(sas_code, extra_files=extra_files, expand_path_b=True)
         ast.infrastructure.review_items.extend(macro_warns)
 
         # Re-parse steps & lineage on expanded code
