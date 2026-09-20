@@ -55,10 +55,12 @@ class SASStepConverter:
         self.optimizer = ROptimizer(dialect=dialect)
         self.infra_analyzer = InfrastructureAnalyzer()
 
-    def convert_program(self, sas_code: str, llm_fallback_fn: Optional[Any] = None, raw_sas_code: Optional[str] = None, extra_files: Optional[list[str]] = None) -> ProgramConversionResult:
+    def convert_program(self, sas_code: str, llm_fallback_fn: Optional[Any] = None, raw_sas_code: Optional[str] = None, extra_files: Optional[list[str]] = None, **kwargs) -> ProgramConversionResult:
         """
         Converts an entire SAS program into an optimized R script with complete metadata.
         """
+        if extra_files is None and "extra_files" in kwargs:
+            extra_files = kwargs.pop("extra_files")
         # 1. Parse AST from raw SAS code (extracts macro definitions & infrastructure from raw SAS if provided)
         ast = parse_sas_program(raw_sas_code if raw_sas_code else sas_code)
 
