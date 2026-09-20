@@ -224,6 +224,20 @@ class SASMacroProcessor:
 
         # Evaluate nested macro calls from innermost to outermost (max 10 passes)
         for _ in range(10):
+            # 0a. %UPCASE(text) / %QUPCASE(text)
+            m_up = re.search(r'%(?:upcase|qupcase)\s*\(\s*([^()]*)\s*\)', expr, re.I)
+            if m_up:
+                raw_text = m_up.group(1).strip()
+                expr = expr[:m_up.start()] + raw_text.upper() + expr[m_up.end():]
+                continue
+
+            # 0b. %LOWCASE(text) / %QLOWCASE(text)
+            m_low = re.search(r'%(?:lowcase|qlowcase)\s*\(\s*([^()]*)\s*\)', expr, re.I)
+            if m_low:
+                raw_text = m_low.group(1).strip()
+                expr = expr[:m_low.start()] + raw_text.lower() + expr[m_low.end():]
+                continue
+
             # 1. %LENGTH(text)
             m_len = re.search(r'%length\s*\(\s*([^()]*)\s*\)', expr, re.I)
             if m_len:

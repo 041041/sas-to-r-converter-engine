@@ -241,6 +241,7 @@ class RuleEngine:
         expr = RuleEngine._normalize_sas_char_missing(expr)
         expr = RuleEngine._normalize_sas_elementwise_functions(expr)
         expr = RuleEngine._normalize_sas_sql_like(expr)
+        expr = RuleEngine._normalize_sas_sql_in(expr)
 
         # Handle SAS missing() function and IS NOT NULL / IS NULL
         expr = re.sub(r'\bnot\s+missing\s*\(\s*([a-zA-Z_]\w*)\s*\)', r'!is.na(\1)', expr, flags=re.I)
@@ -1689,6 +1690,31 @@ class RuleEngine:
 
         target_ds = None
         r_args = []
+
+        def _format_r_val(val_str: str, key_name: str = "") -> str:
+            v = val_str.strip()
+            if not v:
+                return '""'
+            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                return v
+            if v.isdigit() or re.match(r'^\d+\.\d+$', v):
+                return v
+            # Strip leading & for macro variable references
+            v_clean = v.lstrip('&')
+            # Multiple space-separated words -> c("W1", "W2")
+            words = v_clean.split()
+            if len(words) > 1:
+                quoted_words = [f'"{w.strip()}"' if not (w.startswith('"') or w.startswith("'")) else w.strip() for w in words]
+                return f"c({', '.join(quoted_words)})"
+            # Dataset reference (e.g. WORK.ADSL)
+            if '.' in v_clean:
+                return v_clean.split('.')[-1].upper()
+            if key_name.lower() in ('ds', 'data', 'in_ds', 'out_ds', 'input', 'output', 'dataset'):
+                return v_clean.upper()
+            if v_clean.isupper() and len(v_clean) <= 8 and re.match(r'^[A-Za-z_]\w*$', v_clean):
+                return f'"{v_clean}"'
+            return v_clean
+
         for part in args_str.split(','):
             part = part.strip()
             if not part:
@@ -1697,25 +1723,13 @@ class RuleEngine:
                 k, v = part.split('=', 1)
                 k = k.strip().lower()
                 v = v.strip()
-                if k in ('out', 'output'):
-                    target_ds = v
+                if k in ('out', 'output', 'out_ds'):
+                    target_ds = v.split('.')[-1].upper()
                 else:
-                    if v.isdigit() or (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-                        v_r = v
-                    elif v.isupper() and len(v) <= 8 and re.match(r'^[A-Za-z_]\w*$', v) and k not in ('data', 'input', 'dataset'):
-                        v_r = f'"{v}"'
-                    else:
-                        v_r = v
-                    r_args.append(v_r)
+                    v_r = _format_r_val(v, key_name=k)
+                    r_args.append(f"{k} = {v_r}")
             else:
-                if part.isdigit() or (part.startswith('"') and part.endswith('"')) or (part.startswith("'") and part.endswith("'")):
-                    v_r = part
-                elif re.match(r'^[A-Za-z_][\w\s]*$', part) and len(part.split()) > 1:
-                    v_r = f'"{part}"'
-                elif part.isupper() and len(part) <= 8 and re.match(r'^[A-Za-z_]\w*$', part):
-                    v_r = f'"{part}"'
-                else:
-                    v_r = part
+                v_r = _format_r_val(part)
                 r_args.append(v_r)
 
         call_str = f"{m_name}({', '.join(r_args)})"
@@ -1792,3 +1806,39 @@ class RuleEngine:
 
         pat = r'\b([a-zA-Z_]\w*(?:\([^)]*\))?)\s+(not\s+)?like\s+[\'"](.*?)[\'"]'
         return re.sub(pat, _like_repl, expr, flags=re.I)
+
+    @staticmethod
+    def _normalize_sas_sql_in(expr: str) -> str:
+        """
+        Translates SAS SQL IN / NOT IN expressions into R %in% c(...) matching:
+        - lhs IN (a, b) -> lhs %in% c(a, b)
+        - lhs NOT IN (a, b) -> !(lhs %in% c(a, b))
+        """
+        def _in_repl(match):
+            lhs = match.group(1).strip()
+            negated = bool(match.group(2))
+            items_str = match.group(3).strip()
+
+            items_raw = [it.strip() for it in items_str.split(',') if it.strip()]
+            if len(items_raw) == 1 and items_raw[0].startswith('c(') and items_raw[0].endswith(')'):
+                vec_str = items_raw[0]
+            else:
+                items_list = []
+                for it in items_raw:
+                    if (it.startswith('"') and it.endswith('"')) or (it.startswith("'") and it.endswith("'")):
+                        items_list.append(it)
+                    elif it.isdigit() or re.match(r'^\d+\.\d+$', it) or it.upper() in ('TRUE', 'FALSE'):
+                        items_list.append(it)
+                    elif re.match(r'^[A-Za-z_]\w*$', it):
+                        items_list.append(f'"{it}"')
+                    else:
+                        items_list.append(it)
+                vec_str = f"c({', '.join(items_list)})"
+
+            res = f"{lhs} %in% {vec_str}"
+            if negated:
+                return f"!({res})"
+            return res
+
+        pat = r'\b([a-zA-Z_]\w*(?:\([^)]*\))?)\s+(not\s+)?in\s*\(\s*([^()]+)\s*\)'
+        return re.sub(pat, _in_repl, expr, flags=re.I)

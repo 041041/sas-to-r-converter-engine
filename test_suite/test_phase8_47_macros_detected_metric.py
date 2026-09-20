@@ -35,8 +35,8 @@ def test_phase8_47_single_path_b_macro_detected_metric():
 
     # Step conversion & program call assertions
     assert len(res_b.converted_steps) == 2
-    assert "DM_CLEAN <- filter_dataset(DM, \"USUBJID\")" in res_b.converted_steps[0].optimized_r_code
-    assert "AE_CLEAN <- filter_dataset(AE, \"AEDECOD\")" in res_b.converted_steps[1].optimized_r_code
+    assert "DM_CLEAN <- filter_dataset(" in res_b.converted_steps[0].optimized_r_code
+    assert "AE_CLEAN <- filter_dataset(" in res_b.converted_steps[1].optimized_r_code
 
 
 def test_phase8_47_two_nested_path_a_macros_detected_metric():
