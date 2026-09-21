@@ -24,8 +24,8 @@ class DependencyParser:
 
         # Built-in String & Formatting Functions
         "upcase", "qupcase", "lowcase", "qlowcase", "substr", "qsubstr",
-        "scan", "qscan", "index", "length", "qlength", "verify", "qverify",
-        "left", "qleft", "right", "qright", "trim", "qtrim",
+        "scan", "qscan", "index", "qindex", "length", "qlength", "verify", "qverify",
+        "left", "qleft", "right", "qright", "trim", "qtrim", "btrim",
 
         # Built-in System & Environment Utilities
         "symdef", "symdel", "sysget", "sysrc", "sysmsg", "syserr", "sysjobid",
@@ -70,17 +70,35 @@ class DependencyParser:
         clean = cls.MACRO_MEND_PATTERN.sub("", clean)
         return clean
 
-    def parse_main_references(self, caller_name: str, source_content: str, source_file: str) -> list[MacroReference]:
+    def parse_main_references(
+        self,
+        caller_name: str,
+        source_content: str,
+        source_file: str,
+        known_user_macros: set[str] | None = None
+    ) -> list[MacroReference]:
         """Discovers macro calls in top-level code outside of %macro definitions."""
         outer_code = self.strip_macro_definitions(source_content)
-        return self._find_matches(caller_name, outer_code, source_file)
+        return self._find_matches(caller_name, outer_code, source_file, known_user_macros=known_user_macros)
 
-    def parse_references(self, caller_name: str, source_content: str, source_file: str) -> list[MacroReference]:
+    def parse_references(
+        self,
+        caller_name: str,
+        source_content: str,
+        source_file: str,
+        known_user_macros: set[str] | None = None
+    ) -> list[MacroReference]:
         """Discovers all non-builtin macro calls inside a macro body or code snippet."""
         clean_code = self.strip_macro_headers(source_content)
-        return self._find_matches(caller_name, clean_code, source_file)
+        return self._find_matches(caller_name, clean_code, source_file, known_user_macros=known_user_macros)
 
-    def _find_matches(self, caller_name: str, code: str, source_file: str) -> list[MacroReference]:
+    def _find_matches(
+        self,
+        caller_name: str,
+        code: str,
+        source_file: str,
+        known_user_macros: set[str] | None = None
+    ) -> list[MacroReference]:
         references = []
         seen = set()
 
@@ -88,7 +106,9 @@ class DependencyParser:
             raw_name = match.group(1)
             norm_name = raw_name.upper()
 
-            if raw_name.lower() in self.BUILTIN_MACROS:
+            is_defined_user_macro = bool(known_user_macros and norm_name in known_user_macros)
+
+            if not is_defined_user_macro and raw_name.lower() in self.BUILTIN_MACROS:
                 continue
 
             if norm_name in seen:

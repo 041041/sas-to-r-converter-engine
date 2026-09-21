@@ -9,7 +9,6 @@ Hardened for invalid or non-dict inputs.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
-from project_engine.models import RProject
 from project_engine.r_project_assembler import RProjectAssembler
 from project_engine.r_project_zip import RProjectZipExporter
 
@@ -22,7 +21,7 @@ class ConversionOutput:
     download_bytes: bytes
     download_filename: str
     download_mime: str
-    r_project: Optional[RProject] = None
+    r_project: Optional[Any] = None
 
 
 def prepare_conversion_output(

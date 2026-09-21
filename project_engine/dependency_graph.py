@@ -47,8 +47,9 @@ class DependencyGraphBuilder:
                 )
 
         # 4. Discover Macro calls in top-level code of all files
+        known_macros = set(macro_registry.all_macros().keys())
         for pf in files:
-            refs = self.parser.parse_main_references(pf.filename, pf.source_content, pf.filename)
+            refs = self.parser.parse_main_references(pf.filename, pf.source_content, pf.filename, known_user_macros=known_macros)
             for ref in refs:
                 graph.add_edge(
                     caller=pf.filename,
@@ -61,7 +62,7 @@ class DependencyGraphBuilder:
         # 5. Discover Macro calls and %includes inside macro definitions
         for mdef in macro_registry.all_macros().values():
             graph.add_node(mdef.name)
-            refs = self.parser.parse_references(mdef.name, mdef.source_content, mdef.source_file)
+            refs = self.parser.parse_references(mdef.name, mdef.source_content, mdef.source_file, known_user_macros=known_macros)
             for ref in refs:
                 if ref.referenced_macro != mdef.name:  # Avoid self-loops
                     graph.add_edge(

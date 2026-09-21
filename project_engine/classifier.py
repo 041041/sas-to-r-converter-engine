@@ -22,8 +22,9 @@ class ProgramType(str, Enum):
 class ProgramClassifier:
     """Classifies SAS source code into program type categories."""
 
+    _BUILTIN_PATTERN_STR = "|".join(sorted(list(DependencyParser.BUILTIN_MACROS)))
     EXEC_STEP_PATTERN = re.compile(
-        r"(?:^\s*data\s+|^\s*proc\s+|%\b(?!(?:macro|mend|let|put|include|if|then|else|do|end)\b)[a-zA-Z_]\w*\b)",
+        rf"(?:^\s*data\s+|^\s*proc\s+|%\b(?!(?:{_BUILTIN_PATTERN_STR})\b)[a-zA-Z_]\w*\b)",
         re.IGNORECASE | re.MULTILINE
     )
     MACRO_DEF_PATTERN = re.compile(r"%macro\s+[a-zA-Z_]\w*", re.IGNORECASE)
