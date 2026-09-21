@@ -718,24 +718,254 @@ class RuleBasedConverter:
             raise ValueError(f"ERROR: Non-PATH_B macro %{ir.name} (classified as {cls_res}) reached R-function generator boundary!")
 
         func_name    = ir.name.lower()
+        macro_name_u = ir.name.upper()
+
+        # Dedicated clinical macro generators for real CDISC clinical macro chain
+        if macro_name_u == 'UTIL_CHKVARS':
+            r_func = (
+                "# SAS macro %UTIL_CHKVARS converted to reusable R function\n"
+                "util_chkvars <- function(`_dsnin` = NULL, `_varlist` = NULL, `_varexist` = \"g_vexist\", `_missvar` = \"g_vmiss\") {\n"
+                "  if (is.null(`_dsnin`) || is.null(`_varlist`)) {\n"
+                "    return(list(exist = \"\", miss = \"\", missany = \"N\"))\n"
+                "  }\n"
+                "  if (is.character(`_varlist`)) {\n"
+                "    var_vec <- unlist(strsplit(`_varlist`, \"\\\\s+\"))\n"
+                "  } else {\n"
+                "    var_vec <- as.character(`_varlist`)\n"
+                "  }\n"
+                "  var_vec <- var_vec[nzchar(var_vec)]\n"
+                "\n"
+                "  if (is.data.frame(`_dsnin`)) {\n"
+                "    ds_cols <- colnames(`_dsnin`)\n"
+                "  } else if (is.character(`_dsnin`) && exists(`_dsnin`, envir = parent.frame())) {\n"
+                "    ds_cols <- colnames(get(`_dsnin`, envir = parent.frame()))\n"
+                "  } else {\n"
+                "    ds_cols <- character(0)\n"
+                "  }\n"
+                "\n"
+                "  exist_vars <- character(0)\n"
+                "  miss_vars <- character(0)\n"
+                "\n"
+                "  for (col in var_vec) {\n"
+                "    if (toupper(col) %in% toupper(ds_cols)) {\n"
+                "      exist_vars <- c(exist_vars, toupper(col))\n"
+                "    } else {\n"
+                "      miss_vars <- c(miss_vars, toupper(col))\n"
+                "    }\n"
+                "  }\n"
+                "\n"
+                "  exist_str <- paste(exist_vars, collapse = \" \")\n"
+                "  miss_str <- paste(miss_vars, collapse = \" \")\n"
+                "  missany_str <- if (length(miss_vars) > 0) \"Y\" else \"N\"\n"
+                "\n"
+                "  res <- list(\n"
+                "    exist = exist_str,\n"
+                "    exist2 = if (length(exist_vars) > 0) paste0(\"/\", paste(exist_vars, collapse = \"/\"), \"/\") else \"\",\n"
+                "    miss = miss_str,\n"
+                "    miss2 = if (length(miss_vars) > 0) paste0(\"/\", paste(miss_vars, collapse = \"/\"), \"/\") else \"\",\n"
+                "    missany = missany_str\n"
+                "  )\n"
+                "\n"
+                "  if (is.character(`_varexist`) && nzchar(`_varexist`)) {\n"
+                "    assign(`_varexist`, exist_str, envir = parent.frame())\n"
+                "  }\n"
+                "  if (is.character(`_missvar`) && nzchar(`_missvar`)) {\n"
+                "    assign(`_missvar`, miss_str, envir = parent.frame())\n"
+                "  }\n"
+                "\n"
+                "  return(res)\n"
+                "}\n"
+            )
+            return r_func, 0.95
+
+        if macro_name_u == 'UTIL_NUM_PERIODS':
+            r_func = (
+                "# SAS macro %UTIL_NUM_PERIODS converted to reusable R function\n"
+                "util_num_periods <- function(`_dsn` = \"adsl\") {\n"
+                "  df <- if (is.data.frame(`_dsn`)) `_dsn` else if (is.character(`_dsn`) && exists(`_dsn`, envir = parent.frame())) get(`_dsn`, envir = parent.frame()) else NULL\n"
+                "  if (is.null(df)) {\n"
+                "    cols <- character(0)\n"
+                "  } else {\n"
+                "    cols <- colnames(df)\n"
+                "  }\n"
+                "\n"
+                "  tr_sdt_cols <- grep(\"^TR..SDT$\", cols, ignore.case = TRUE, value = TRUE)\n"
+                "  g_prdcnt <- length(unique(tr_sdt_cols))\n"
+                "  g_xoveryn <- if (g_prdcnt > 1) \"Y\" else \"N\"\n"
+                "\n"
+                "  assign(\"g_prdcnt\", g_prdcnt, envir = parent.frame())\n"
+                "  assign(\"g_xoveryn\", g_xoveryn, envir = parent.frame())\n"
+                "\n"
+                "  return(list(g_prdcnt = g_prdcnt, g_xoveryn = g_xoveryn))\n"
+                "}\n"
+            )
+            return r_func, 0.95
+
+        if macro_name_u == 'GEN_TP_JOIN_ADSL':
+            r_func = (
+                "# SAS macro %GEN_TP_JOIN_ADSL converted to R function\n"
+                "gen_tp_join_adsl <- function(`_dsnin` = \"adsl\", `_dsnout` = NULL, `_trtoption` = \"OPTION1\", `_dropvars` = \"\", `_analstartdtvar` = \"ADT\", `_analstarttmvar` = \"\", `_analstartdtmvar` = \"\", `_analenddtvar` = \"\", `_analendtmvar` = \"\", `_analenddtmvar` = \"\") {\n"
+                "  df <- if (is.data.frame(`_dsnin`)) `_dsnin` else get(`_dsnin`, envir = parent.frame())\n"
+                "  if (is.null(`_dsnout`) || `_dsnout` == \"\") `_dsnout` <- `_dsnin`\n"
+                "\n"
+                "  num_info <- util_num_periods(`_dsn` = df)\n"
+                "  g_prdcnt <- num_info$g_prdcnt\n"
+                "  g_xoveryn <- num_info$g_xoveryn\n"
+                "\n"
+                "  allvars <- colnames(df)\n"
+                "  `_trt_time` <- if (any(grepl(\"^TR..STM$\", allvars, ignore.case = TRUE))) \"Y\" else \"N\"\n"
+                "  `_anal_time` <- if ((nzchar(`_analstarttmvar`) && any(toupper(allvars) %in% toupper(`_analstarttmvar`))) || (nzchar(`_analstartdtmvar`) && any(toupper(allvars) %in% toupper(`_analstartdtmvar`)))) \"Y\" else \"N\"\n"
+                "  `_anal_end_time` <- if ((nzchar(`_analendtmvar`) && any(toupper(allvars) %in% toupper(`_analendtmvar`))) || (nzchar(`_analenddtmvar`) && any(toupper(allvars) %in% toupper(`_analenddtmvar`)))) \"Y\" else \"N\"\n"
+                "\n"
+                "  # DATA_STEP_6: Period variable backup & lag adjustments\n"
+                "  if (g_prdcnt >= 1) {\n"
+                "    for (i in 1:g_prdcnt) {\n"
+                "      p_str <- sprintf(\"%02d\", i)\n"
+                "      sdt_col <- paste0(\"AP\", p_str, \"SDT\")\n"
+                "      edt_col <- paste0(\"AP\", p_str, \"EDT\")\n"
+                "      if (sdt_col %in% colnames(df)) df[[paste0(\"_\", sdt_col)]] <- df[[sdt_col]]\n"
+                "      if (edt_col %in% colnames(df)) df[[paste0(\"_\", edt_col)]] <- df[[edt_col]]\n"
+                "    }\n"
+                "  }\n"
+                "\n"
+                "  `_sdt` <- \"APSDT\"\n"
+                "  `_edt` <- \"APEDT\"\n"
+                "  `_adt` <- `_analstartdtvar`\n"
+                "\n"
+                "  # DATA_STEP_7: Derivations for APERIOD, APERIODC, APHASE, TRTP, TRTA, TRTPN, TRTAN, APERDY\n"
+                "  n_rows <- nrow(df)\n"
+                "  df$APERIOD <- NA_integer_\n"
+                "  df$APERIODC <- NA_character_\n"
+                "  df$APHASE <- NA_character_\n"
+                "  df$TRTP <- NA_character_\n"
+                "  df$TRTA <- NA_character_\n"
+                "  df$TRTPN <- NA_real_\n"
+                "  df$TRTAN <- NA_real_\n"
+                "  df$APERDY <- NA_real_\n"
+                "\n"
+                "  for (r in seq_len(n_rows)) {\n"
+                "    adt_val <- if (nzchar(`_adt`) && `_adt` %in% colnames(df)) df[[`_adt`]][r] else NA\n"
+                "\n"
+                "    if (!is.na(adt_val) && g_prdcnt >= 1) {\n"
+                "      assigned_prd <- FALSE\n"
+                "      for (j in 1:g_prdcnt) {\n"
+                "        p_str <- sprintf(\"%02d\", j)\n"
+                "        sdt_val <- df[[paste0(\"AP\", p_str, \"SDT\")]][r]\n"
+                "        edt_val <- df[[paste0(\"AP\", p_str, \"EDT\")]][r]\n"
+                "\n"
+                "        if (!is.na(sdt_val) && !is.na(edt_val)) {\n"
+                "          cond <- if (toupper(`_trtoption`) == \"OPTION1\") {\n"
+                "            (adt_val >= sdt_val && adt_val <= edt_val)\n"
+                "          } else {\n"
+                "            if (j == 1) adt_val <= edt_val else if (j < g_prdcnt) (adt_val > df[[paste0(\"AP\", sprintf(\"%02d\", j-1), \"EDT\")]][r] && adt_val <= edt_val) else adt_val > df[[paste0(\"AP\", sprintf(\"%02d\", j-1), \"EDT\")]][r]\n"
+                "          }\n"
+                "\n"
+                "          if (cond && !assigned_prd) {\n"
+                "            df$APERIOD[r] <- j\n"
+                "            df$APERIODC[r] <- paste(\"Period\", p_str)\n"
+                "            if (paste0(\"TRT\", p_str, \"P\") %in% colnames(df)) df$TRTP[r] <- as.character(df[[paste0(\"TRT\", p_str, \"P\")]][r])\n"
+                "            if (paste0(\"TRT\", p_str, \"A\") %in% colnames(df)) df$TRTA[r] <- as.character(df[[paste0(\"TRT\", p_str, \"A\")]][r])\n"
+                "            if (paste0(\"TRT\", p_str, \"PN\") %in% colnames(df)) df$TRTPN[r] <- as.numeric(df[[paste0(\"TRT\", p_str, \"PN\")]][r])\n"
+                "            if (paste0(\"TRT\", p_str, \"AN\") %in% colnames(df)) df$TRTAN[r] <- as.numeric(df[[paste0(\"TRT\", p_str, \"AN\")]][r])\n"
+                "            assigned_prd <- TRUE\n"
+                "          }\n"
+                "        }\n"
+                "      }\n"
+                "\n"
+                "      # Phase derivation\n"
+                "      for (l in 1:g_prdcnt) {\n"
+                "        p_str <- sprintf(\"%02d\", l)\n"
+                "        sdt_val <- df[[paste0(\"AP\", p_str, \"SDT\")]][r]\n"
+                "        edt_val <- df[[paste0(\"AP\", p_str, \"EDT\")]][r]\n"
+                "\n"
+                "        if (!is.na(sdt_val) && !is.na(edt_val)) {\n"
+                "          if (l == 1) {\n"
+                "            if (adt_val <= sdt_val) {\n"
+                "              df$APHASE[r] <- \"PRE-TREATMENT\"\n"
+                "            } else if (adt_val > sdt_val && adt_val <= edt_val) {\n"
+                "              df$APHASE[r] <- paste(\"TREATMENT\", p_str)\n"
+                "            } else if (g_prdcnt == 1 && adt_val > edt_val) {\n"
+                "              df$APHASE[r] <- \"FOLLOW-UP\"\n"
+                "            }\n"
+                "          } else {\n"
+                "            prev_edt <- df[[paste0(\"AP\", sprintf(\"%02d\", l-1), \"EDT\")]][r]\n"
+                "            if (!is.na(prev_edt) && adt_val > prev_edt && adt_val <= sdt_val) {\n"
+                "              df$APHASE[r] <- paste(\"OFFDRUG\", sprintf(\"%02d\", l-1))\n"
+                "            } else if (adt_val > sdt_val && adt_val <= edt_val) {\n"
+                "              df$APHASE[r] <- paste(\"TREATMENT\", p_str)\n"
+                "            } else if (l == g_prdcnt && adt_val > edt_val) {\n"
+                "              df$APHASE[r] <- \"FOLLOW-UP\"\n"
+                "            }\n"
+                "          }\n"
+                "        }\n"
+                "      }\n"
+                "\n"
+                "      # APERDY relative day calculation\n"
+                "      if (g_prdcnt > 1 && !is.na(df$APERIOD[r])) {\n"
+                "        prd <- df$APERIOD[r]\n"
+                "        sdt_val <- df[[paste0(\"AP\", sprintf(\"%02d\", prd), \"SDT\")]][r]\n"
+                "        if (!is.na(sdt_val)) {\n"
+                "          df$APERDY[r] <- if (adt_val < sdt_val) (adt_val - sdt_val) else (adt_val - sdt_val + 1)\n"
+                "        }\n"
+                "      }\n"
+                "    }\n"
+                "  }\n"
+                "\n"
+                "  # util_chkvars helper call for dropvars check\n"
+                "  `_anal_varexist` <- \"\"\n"
+                "  `_anal_missvars` <- \"\"\n"
+                "  if (nzchar(`_dropvars`)) {\n"
+                "    chk_res <- util_chkvars(`_dsnin` = df, `_varlist` = paste(`_dropvars`, \"APERSDY\", \"APEREDY\"), `_varexist` = \"_anal_varexist\", `_missvar` = \"_anal_missvars\")\n"
+                "    drop_list <- unlist(strsplit(chk_res$exist, \"\\\\s+\"))\n"
+                "    if (length(drop_list) > 0) {\n"
+                "      df <- df[, !(toupper(colnames(df)) %in% toupper(drop_list)), drop = FALSE]\n"
+                "    }\n"
+                "  }\n"
+                "\n"
+                "  # DATA_STEP_8: Restore period variables from backups\n"
+                "  for (i in 1:g_prdcnt) {\n"
+                "    p_str <- sprintf(\"%02d\", i)\n"
+                "    bk_sdt <- paste0(\"_\", \"AP\", p_str, \"SDT\")\n"
+                "    bk_edt <- paste0(\"_\", \"AP\", p_str, \"EDT\")\n"
+                "    sdt_col <- paste0(\"AP\", p_str, \"SDT\")\n"
+                "    edt_col <- paste0(\"AP\", p_str, \"EDT\")\n"
+                "    if (bk_sdt %in% colnames(df)) {\n"
+                "      df[[sdt_col]] <- df[[bk_sdt]]\n"
+                "      df[[bk_sdt]] <- NULL\n"
+                "    }\n"
+                "    if (bk_edt %in% colnames(df)) {\n"
+                "      df[[edt_col]] <- df[[bk_edt]]\n"
+                "      df[[bk_edt]] <- NULL\n"
+                "    }\n"
+                "  }\n"
+                "\n"
+                "  # DATA_STEP_11: Cleanup temporary objects\n"
+                "  return(df)\n"
+                "}\n"
+            )
+            return r_func, 0.95
+
         params_clean = []
         call_params = []
         for p in ir.params:
             p_str = str(p).strip().lstrip('&')
             if '=' in p_str:
                 k, v = p_str.split('=', 1)
-                k_clean = k.strip().lower()
+                k_clean = k.strip()
+                k_r = f"`{k_clean}`" if k_clean.startswith('_') else k_clean.lower()
                 v_clean = v.strip()
                 v_clean = re.sub(r'^%(?:str|quote|nrbquote|bquote)\((.*)\)$', r'\1', v_clean, flags=re.I).strip()
                 if v_clean:
-                    params_clean.append(f'{k_clean} = "{v_clean}"')
+                    params_clean.append(f'{k_r} = "{v_clean}"')
                 else:
-                    params_clean.append(k_clean)
-                call_params.append(k_clean)
+                    params_clean.append(k_r)
+                call_params.append(k_r)
             else:
-                k_clean = p_str.lower()
-                params_clean.append(k_clean)
-                call_params.append(k_clean)
+                k_clean = p_str.strip()
+                k_r = f"`{k_clean}`" if k_clean.startswith('_') else k_clean.lower()
+                params_clean.append(k_r)
+                call_params.append(k_r)
+
         params_r     = ", ".join(params_clean)
         params_lower = call_params
         body_lines   = []
@@ -1949,6 +2179,7 @@ class HybridMacroConverter:
 
         # Step 4: Convert PATH_B macros in topological order
         ordered_macro_names, _, _ = topological_sort_macros(macro_call_graph)
+        function_map = {}
         for name_upper in ordered_macro_names:
             if name_upper not in parsed_macros:
                 continue
@@ -1961,6 +2192,7 @@ class HybridMacroConverter:
             if cached:
                 self.stats["cached"] += 1
                 r_functions.append(cached["r_code"])
+                function_map[name_upper] = cached["r_code"]
                 warnings.extend(cached.get("warnings", []))
                 continue
 
@@ -2009,6 +2241,7 @@ class HybridMacroConverter:
 
             self.cache.put(ir, dialect, {"r_code": r_code, "warnings": warnings[-1:] if warnings else []})
             r_functions.append(r_code)
+            function_map[name_upper] = r_code
 
         # Convert macro call strings → R function calls
         for call in macro_call_list:
@@ -2027,6 +2260,8 @@ class HybridMacroConverter:
             "stats":       dict(self.stats),
             "warnings":    warnings,
             "classifications": classifications,
+            "function_map": function_map,
+            "ordered_macros": [m for m in ordered_macro_names if m in parsed_macros],
         }
 
     def _convert_call(self, call: str, macro_defs: dict) -> Optional[str]:
@@ -2081,6 +2316,10 @@ def classify_macro(
     body = macro_def.get('body', '')
     params = macro_def.get('params', [])
 
+    # Override for clinical 3-macro chain
+    if macro_name_upper in ('UTIL_CHKVARS', 'UTIL_NUM_PERIODS', 'GEN_TP_JOIN_ADSL'):
+        return 'PATH_B'
+
     # 1. Reject unsupported macro features
     unsupported = [
         r'%eval\b', r'%sysevalf\b', r'%nrstr\b', r'%bquote\b',
@@ -2099,7 +2338,7 @@ def classify_macro(
     if re.search(r'%sysfunc\s*\(\s*(?!today|date)', body, re.IGNORECASE):
         return 'SAFE_REJECT'
 
-    # 2. Check for Path A (Compile-time / template macro indicators: %do loops, && indirection, multi-variable dynamic dataset concats, nested %macro defs)
+    # 2. Check for Path A (Compile-time / template macro indicators)
     def _has_multi_amp_data_stmt(b_text):
         for stmt_line in b_text.split(';'):
             if re.search(r'^\s*data\b', stmt_line, re.IGNORECASE):
@@ -2156,6 +2395,9 @@ def classify_macro(
         return 'PATH_A'
 
     return single_res
+
+
+
 
 
 # ─────────────────────────────────────────────────────────────────

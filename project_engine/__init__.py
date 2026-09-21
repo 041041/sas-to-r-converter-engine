@@ -14,8 +14,12 @@ from project_engine.models import (
     DependencyType,
     DependencyGraph,
     ResolutionResult,
-    ResolutionStatus
+    ResolutionStatus,
+    RProject
 )
+from project_engine.r_project_assembler import RProjectAssembler
+from project_engine.r_project_zip import RProjectZipExporter
+from project_engine.output_handler import prepare_conversion_output, ConversionOutput
 from project_engine.file_registry import ProjectFileRegistry
 from project_engine.macro_registry import MacroRegistry
 from project_engine.dependency_parser import DependencyParser
@@ -59,4 +63,9 @@ __all__ = [
     "QualitySummary",
     "evaluate_quality_summary",
     "DatasetSchemaRegistry",
+    "RProject",
+    "RProjectAssembler",
+    "RProjectZipExporter",
+    "prepare_conversion_output",
+    "ConversionOutput",
 ]

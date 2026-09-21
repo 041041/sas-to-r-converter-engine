@@ -12,6 +12,7 @@ from macro_converter import convert_macros_to_r
 from tlf_shell_builder import render_shell_tlf_tab
 from rule_engine import RuleEngine
 from sas_ast import ProgramStep
+from project_engine.output_handler import prepare_conversion_output
 
 
 # --- CONFIGURATION ---
@@ -2014,8 +2015,28 @@ quit;"""
             """, unsafe_allow_html=True)
 
         if results:
+            # Output Format Selector
+            output_format = st.radio(
+                "Output Format",
+                options=["Single R File", "Modular R Project (.zip)"],
+                index=0,
+                horizontal=True,
+                key="output_format_selector"
+            )
+
+            conv_result = st.session_state.get("current_conv_result") or {"r_functions": full_r_display, "r_calls": ""}
+            if not isinstance(conv_result, dict):
+                conv_result = {"r_functions": full_r_display, "r_calls": ""}
+
+            prep_out = prepare_conversion_output(
+                conversion_result=conv_result,
+                output_format=output_format,
+                project_name="converted_project",
+                single_filename="converted_pipeline.R"
+            )
+
             # Generated R Code Box (Immediately follows header)
-            st.code(full_r_display, language="r")
+            st.code(prep_out.r_code_text, language="r")
 
             # Action Controls (BELOW generated R code box)
             c_review, c_dl = st.columns([1, 1])
@@ -2024,10 +2045,10 @@ quit;"""
                 st.button(review_btn_label, key="btn_review_active", on_click=toggle_r_review, use_container_width=True)
             with c_dl:
                 st.download_button(
-                    "⬇️ Download .R Script",
-                    data=full_r_display,
-                    file_name="converted_pipeline.R",
-                    mime="text/plain",
+                    label=f"⬇️ Download {'Modular Project (.zip)' if output_format == 'Modular R Project (.zip)' else '.R Script'}",
+                    data=prep_out.download_bytes,
+                    file_name=prep_out.download_filename,
+                    mime=prep_out.download_mime,
                     use_container_width=True
                 )
         else:
