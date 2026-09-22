@@ -7,7 +7,7 @@ Static parser for discovering %INCLUDE directives in SAS source code without exe
 from __future__ import annotations
 import re
 import os
-from project_engine.models import IncludeReference
+from .models import IncludeReference
 
 
 class IncludeParser:

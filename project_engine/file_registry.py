@@ -6,7 +6,7 @@ Project File Registry for registering and organizing uploaded SAS project files.
 
 from __future__ import annotations
 import os
-from project_engine.models import ProjectFile
+from .models import ProjectFile
 
 
 class ProjectFileRegistry:

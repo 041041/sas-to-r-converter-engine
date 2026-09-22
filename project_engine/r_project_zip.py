@@ -10,7 +10,7 @@ import io
 import zipfile
 from pathlib import Path
 from typing import Union
-from project_engine.models import RProject
+from .models import RProject
 
 
 class RProjectZipExporter:

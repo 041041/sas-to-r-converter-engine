@@ -7,7 +7,7 @@ and auditability logging across unified macro and %include dependency graphs.
 
 from __future__ import annotations
 from typing import Any
-from project_engine.models import (
+from .models import (
     DependencyGraph,
     DependencyType,
     IncludeReference,
@@ -15,8 +15,8 @@ from project_engine.models import (
     ResolutionResult,
     ResolutionStatus
 )
-from project_engine.macro_registry import MacroRegistry
-from project_engine.file_registry import ProjectFileRegistry
+from .macro_registry import MacroRegistry
+from .file_registry import ProjectFileRegistry
 
 
 class DependencyResolver:

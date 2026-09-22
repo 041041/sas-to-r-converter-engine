@@ -4,7 +4,7 @@ project_engine package
 Enterprise SAS Project Dependency Architecture package.
 """
 
-from project_engine.models import (
+from .models import (
     ProjectContext,
     ProjectFile,
     MacroDefinition,
@@ -17,20 +17,20 @@ from project_engine.models import (
     ResolutionStatus,
     RProject
 )
-from project_engine.r_project_assembler import RProjectAssembler
-from project_engine.r_project_zip import RProjectZipExporter
-from project_engine.output_handler import prepare_conversion_output, ConversionOutput
-from project_engine.file_registry import ProjectFileRegistry
-from project_engine.macro_registry import MacroRegistry
-from project_engine.dependency_parser import DependencyParser
-from project_engine.include_parser import IncludeParser
-from project_engine.dependency_graph import DependencyGraphBuilder
-from project_engine.resolver import DependencyResolver
-from project_engine.analyzer import ProjectAnalyzer
-from project_engine.validation import ProjectValidator
-from project_engine.classifier import ProgramClassifier, ProgramType
-from project_engine.schema_registry import DatasetSchemaRegistry
-from project_engine.quality import (
+from .r_project_assembler import RProjectAssembler
+from .r_project_zip import RProjectZipExporter
+from .output_handler import prepare_conversion_output, ConversionOutput
+from .file_registry import ProjectFileRegistry
+from .macro_registry import MacroRegistry
+from .dependency_parser import DependencyParser
+from .include_parser import IncludeParser
+from .dependency_graph import DependencyGraphBuilder
+from .resolver import DependencyResolver
+from .analyzer import ProjectAnalyzer
+from .validation import ProjectValidator
+from .classifier import ProgramClassifier, ProgramType
+from .schema_registry import DatasetSchemaRegistry
+from .quality import (
     QualityStatus,
     ConfidenceBand,
     QualitySummary,

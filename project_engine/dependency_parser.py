@@ -6,7 +6,7 @@ Dependency Parser for discovering macro calls and references in SAS source code.
 
 from __future__ import annotations
 import re
-from project_engine.models import MacroReference
+from .models import MacroReference
 
 
 class DependencyParser:

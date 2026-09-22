@@ -6,8 +6,8 @@ Project Validator for formatting project analysis summaries and error/warning me
 
 from __future__ import annotations
 from typing import Any
-from project_engine.models import DependencyType, ProjectContext, ResolutionStatus
-from project_engine.classifier import ProgramClassifier
+from .models import DependencyType, ProjectContext, ResolutionStatus
+from .classifier import ProgramClassifier
 
 
 class ProjectValidator:

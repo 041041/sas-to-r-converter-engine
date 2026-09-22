@@ -8,7 +8,7 @@ EXECUTABLE_PROGRAM, MACRO_LIBRARY, MIXED_PROGRAM, or INVALID_SOURCE.
 from __future__ import annotations
 import re
 from enum import Enum
-from project_engine.dependency_parser import DependencyParser
+from .dependency_parser import DependencyParser
 
 
 class ProgramType(str, Enum):

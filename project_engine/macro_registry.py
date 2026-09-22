@@ -6,7 +6,7 @@ Macro Registry for discovering, indexing, and detecting duplicate SAS macro defi
 
 from __future__ import annotations
 import re
-from project_engine.models import MacroDefinition, MacroParameter, ProjectFile
+from .models import MacroDefinition, MacroParameter, ProjectFile
 
 
 class MacroRegistry:

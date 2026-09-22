@@ -6,17 +6,17 @@ Project Analyzer orchestrator for building ProjectContext from uploaded files.
 
 from __future__ import annotations
 from typing import Sequence
-from project_engine.models import (
+from .models import (
     DependencyType,
     ProjectContext,
     ResolutionStatus
 )
-from project_engine.file_registry import ProjectFileRegistry
-from project_engine.macro_registry import MacroRegistry
-from project_engine.dependency_parser import DependencyParser
-from project_engine.include_parser import IncludeParser
-from project_engine.dependency_graph import DependencyGraphBuilder
-from project_engine.resolver import DependencyResolver
+from .file_registry import ProjectFileRegistry
+from .macro_registry import MacroRegistry
+from .dependency_parser import DependencyParser
+from .include_parser import IncludeParser
+from .dependency_graph import DependencyGraphBuilder
+from .resolver import DependencyResolver
 
 
 class ProjectAnalyzer:

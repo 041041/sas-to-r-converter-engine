@@ -9,8 +9,8 @@ Hardened for invalid or non-dict inputs.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
-from project_engine.r_project_assembler import RProjectAssembler
-from project_engine.r_project_zip import RProjectZipExporter
+from .r_project_assembler import RProjectAssembler
+from .r_project_zip import RProjectZipExporter
 
 
 @dataclass

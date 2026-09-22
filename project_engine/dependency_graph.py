@@ -5,10 +5,10 @@ Dependency Graph Builder for constructing unified macro call and %include depend
 """
 
 from __future__ import annotations
-from project_engine.models import DependencyGraph, DependencyType, ProjectFile
-from project_engine.macro_registry import MacroRegistry
-from project_engine.dependency_parser import DependencyParser
-from project_engine.include_parser import IncludeParser
+from .models import DependencyGraph, DependencyType, ProjectFile
+from .macro_registry import MacroRegistry
+from .dependency_parser import DependencyParser
+from .include_parser import IncludeParser
 
 
 class DependencyGraphBuilder:
