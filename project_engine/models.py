@@ -20,6 +20,41 @@ class ResolutionStatus(str, Enum):
 
 
 @dataclass
+class RProject:
+    """Explicit domain model representing a structured, modular R project."""
+    project_name: str = "converted_project"
+    main_file: str = "main.R"
+    source_files: dict[str, str] = field(default_factory=dict)
+    entry_function: str | None = None
+    dependency_order: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def write_to_directory(self, target_dir: str | Path) -> dict[str, str]:
+        """
+        Writes all source files in this RProject into target_dir directory structure.
+        Returns a dict mapping relative file paths to absolute file path strings.
+        """
+        target_path = Path(target_dir)
+        written_files = {}
+        for rel_path, content in self.source_files.items():
+            full_path = target_path / rel_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(content, encoding="utf-8")
+            written_files[rel_path] = str(full_path.resolve())
+        return written_files
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "project_name": self.project_name,
+            "main_file": self.main_file,
+            "source_files": list(self.source_files.keys()),
+            "entry_function": self.entry_function,
+            "dependency_order": self.dependency_order,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass
 class ProjectFile:
     filename: str
     normalized_path: str
@@ -230,39 +265,4 @@ class ProjectContext:
                 name: m.to_dict() for name, m in self.macro_registry.items()
             },
             "audit_trail": self.resolution_result.audit_trail
-        }
-
-
-@dataclass
-class RProject:
-    """Explicit domain model representing a structured, modular R project."""
-    project_name: str = "converted_project"
-    main_file: str = "main.R"
-    source_files: dict[str, str] = field(default_factory=dict)
-    entry_function: str | None = None
-    dependency_order: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def write_to_directory(self, target_dir: str | Path) -> dict[str, str]:
-        """
-        Writes all source files in this RProject into target_dir directory structure.
-        Returns a dict mapping relative file paths to absolute file path strings.
-        """
-        target_path = Path(target_dir)
-        written_files = {}
-        for rel_path, content in self.source_files.items():
-            full_path = target_path / rel_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content, encoding="utf-8")
-            written_files[rel_path] = str(full_path.resolve())
-        return written_files
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "project_name": self.project_name,
-            "main_file": self.main_file,
-            "source_files": list(self.source_files.keys()),
-            "entry_function": self.entry_function,
-            "dependency_order": self.dependency_order,
-            "metadata": self.metadata,
         }
