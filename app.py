@@ -2027,7 +2027,7 @@ quit;"""
         with col_hdr2:
             sub_col_lbl, sub_col_sel = st.columns([1.0, 2.6], vertical_alignment="center")
             with sub_col_lbl:
-                st.markdown('<div class="output-format-label">Output Format:</div>', unsafe_allow_html=True)
+                st.markdown('<div class="output-format-label">Format:</div>', unsafe_allow_html=True)
             with sub_col_sel:
                 output_format = st.selectbox(
                     "Output Format",
