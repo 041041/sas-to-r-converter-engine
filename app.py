@@ -166,7 +166,7 @@ st.markdown("""
         box-sizing: border-box !important;
     }
     .r-output-title {
-        font-size: 1.25rem !important;
+        font-size: 1.15rem !important;
         font-weight: 700 !important;
         color: var(--text-main) !important;
         display: flex !important;
@@ -174,6 +174,7 @@ st.markdown("""
         gap: 8px !important;
         margin: 0 !important;
         padding: 0 !important;
+        white-space: nowrap !important;
     }
     .r-output-header-right {
         display: flex !important;
@@ -2018,13 +2019,13 @@ quit;"""
             st.session_state["current_quality_summary"] = q_summary
 
         # Integrated Horizontal R Output Header Row
-        col_hdr1, col_hdr2, col_hdr3 = st.columns([1.6, 3.8, 1.6], vertical_alignment="center")
+        col_hdr1, col_hdr2, col_hdr3 = st.columns([2.0, 3.6, 1.4], vertical_alignment="center")
 
         with col_hdr1:
             st.markdown('<div class="r-output-title">⚙️ R Output</div>', unsafe_allow_html=True)
 
         with col_hdr2:
-            sub_col_lbl, sub_col_sel = st.columns([1.1, 2.5], vertical_alignment="center")
+            sub_col_lbl, sub_col_sel = st.columns([1.0, 2.6], vertical_alignment="center")
             with sub_col_lbl:
                 st.markdown('<div class="output-format-label">Output Format:</div>', unsafe_allow_html=True)
             with sub_col_sel:
