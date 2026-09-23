@@ -230,6 +230,7 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         gap: 4px !important;
+        white-space: nowrap !important;
     }
     .conversion-quality-control summary::-webkit-details-marker {
         display: none !important;
@@ -2019,23 +2020,19 @@ quit;"""
             st.session_state["current_quality_summary"] = q_summary
 
         # Integrated Horizontal R Output Header Row
-        col_hdr1, col_hdr2, col_hdr3 = st.columns([2.0, 3.6, 1.4], vertical_alignment="center")
+        col_hdr1, col_hdr2, col_hdr3 = st.columns([1.8, 3.2, 2.0], vertical_alignment="center")
 
         with col_hdr1:
             st.markdown('<div class="r-output-title">⚙️ R Output</div>', unsafe_allow_html=True)
 
         with col_hdr2:
-            sub_col_lbl, sub_col_sel = st.columns([1.0, 2.6], vertical_alignment="center")
-            with sub_col_lbl:
-                st.markdown('<div class="output-format-label">Format:</div>', unsafe_allow_html=True)
-            with sub_col_sel:
-                output_format = st.selectbox(
-                    "Output Format",
-                    options=["Single R File", "Modular R Project (.zip)"],
-                    index=0,
-                    key="output_format_selector",
-                    label_visibility="collapsed"
-                )
+            output_format = st.selectbox(
+                "Output Format",
+                options=["Single R File", "Modular R Project (.zip)"],
+                index=0,
+                key="output_format_selector",
+                label_visibility="collapsed"
+            )
 
         with col_hdr3:
             if results and q_summary:
