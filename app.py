@@ -175,6 +175,44 @@ st.markdown("""
         margin: 0 !important;
         padding: 0 !important;
     }
+    .r-output-header-right {
+        display: flex !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+        height: 38px !important;
+    }
+    .output-format-label {
+        font-weight: 600 !important;
+        font-size: 0.92rem !important;
+        color: var(--text-main, #1f2937) !important;
+        white-space: nowrap !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        height: 38px !important;
+        padding-right: 4px !important;
+    }
+    div[data-testid="stSelectbox"] {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+    div[data-testid="stSelectbox"] > div {
+        margin-top: 0 !important;
+    }
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        border-radius: 8px !important;
+        border: 1px solid var(--border-color, #d0d7de) !important;
+        background-color: var(--bg-surface, #ffffff) !important;
+        color: var(--text-main, #1f2937) !important;
+        font-size: 0.9rem !important;
+        font-weight: 500 !important;
+        min-height: 38px !important;
+        height: 38px !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+    }
     .conversion-quality-control {
         position: relative !important;
         display: inline-block !important;
@@ -1979,50 +2017,53 @@ quit;"""
             )
             st.session_state["current_quality_summary"] = q_summary
 
-        # Stable HTML Header Shell Component with Native HTML <details> Quality Control
-        if results and q_summary:
-            conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
-            manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
+        # Integrated Horizontal R Output Header Row
+        col_hdr1, col_hdr2, col_hdr3 = st.columns([1.6, 3.8, 1.6], vertical_alignment="center")
 
-            st.markdown(f"""
-            <div class="r-output-header-shell">
-                <div class="r-output-title">⚙️ R Output</div>
-                <details class="conversion-quality-control">
-                    <summary>✅ Converted</summary>
-                    <div class="conversion-quality-panel">
-                        <div class="quality-title">Conversion Quality</div>
-                        <div class="quality-row"><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
-                        <div class="quality-row"><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
-                        <div class="quality-row"><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
-                        <div class="quality-row"><strong>Converted:</strong> {conv_items_str}</div>
-                        <div class="quality-row"><strong>Manual Review:</strong> {manual_review_str}</div>
-                    </div>
-                </details>
-            </div>
-            """, unsafe_allow_html=True)
-        elif pipeline_run_flag:
-            st.markdown("""
-            <div class="r-output-header-shell">
-                <div class="r-output-title">⚙️ R Output</div>
-                <div style="color: var(--warning); font-weight: 600; font-size: 0.88rem;">Converting...</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="r-output-header-shell">
-                <div class="r-output-title">⚙️ R Output</div>
-            </div>
-            """, unsafe_allow_html=True)
+        with col_hdr1:
+            st.markdown('<div class="r-output-title">⚙️ R Output</div>', unsafe_allow_html=True)
+
+        with col_hdr2:
+            sub_col_lbl, sub_col_sel = st.columns([1.1, 2.5], vertical_alignment="center")
+            with sub_col_lbl:
+                st.markdown('<div class="output-format-label">Output Format:</div>', unsafe_allow_html=True)
+            with sub_col_sel:
+                output_format = st.selectbox(
+                    "Output Format",
+                    options=["Single R File", "Modular R Project (.zip)"],
+                    index=0,
+                    key="output_format_selector",
+                    label_visibility="collapsed"
+                )
+
+        with col_hdr3:
+            if results and q_summary:
+                conv_items_str = " • ".join([f"{k}: {v}" for k, v in q_summary.converted_counts.items()]) if q_summary.converted_counts else "Modernized R output generated"
+                manual_review_str = f"⚠ {len(q_summary.review_items)} item(s) require review" if q_summary.review_items else "✅ No manual review items detected"
+
+                st.markdown(f"""
+                <div class="r-output-header-right">
+                    <details class="conversion-quality-control">
+                        <summary>✅ Converted</summary>
+                        <div class="conversion-quality-panel">
+                            <div class="quality-title">Conversion Quality</div>
+                            <div class="quality-row"><strong>Confidence:</strong> <code>{q_summary.confidence_percentage}%</code> — {q_summary.confidence_band.value}</div>
+                            <div class="quality-row"><strong>R Validation:</strong> {q_summary.r_validation_label}</div>
+                            <div class="quality-row"><strong>Project:</strong> {q_summary.project_resolution_label if q_summary.is_project else "Single File"}</div>
+                            <div class="quality-row"><strong>Converted:</strong> {conv_items_str}</div>
+                            <div class="quality-row"><strong>Manual Review:</strong> {manual_review_str}</div>
+                        </div>
+                    </details>
+                </div>
+                """, unsafe_allow_html=True)
+            elif pipeline_run_flag:
+                st.markdown("""
+                <div class="r-output-header-right">
+                    <div style="color: var(--warning); font-weight: 600; font-size: 0.88rem;">Converting...</div>
+                </div>
+                """, unsafe_allow_html=True)
 
         if results:
-            # Output Format Selector
-            output_format = st.radio(
-                "Output Format",
-                options=["Single R File", "Modular R Project (.zip)"],
-                index=0,
-                horizontal=True,
-                key="output_format_selector"
-            )
 
             conv_result = st.session_state.get("current_conv_result") or {"r_functions": full_r_display, "r_calls": ""}
             if not isinstance(conv_result, dict):
